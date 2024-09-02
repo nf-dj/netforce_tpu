@@ -1,4 +1,4 @@
 Netforce TPU
 ============
 
-Building hardware to run transformer models at low cost.
+Building hardware to run transformer neural networks at low cost.
