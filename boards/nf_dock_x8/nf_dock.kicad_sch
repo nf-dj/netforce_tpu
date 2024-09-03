@@ -1,0 +1,65 @@
+(kicad_sch (version 20230121) (generator eeschema)
+
+  (uuid 64a940ff-99ed-4c6a-b1d5-72880bacaf5b)
+
+  (paper "A4")
+
+  (lib_symbols
+  )
+
+
+  (sheet (at 145.542 100.965) (size 26.035 13.335) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 2067553b-7645-46bf-ac87-af48717140ab)
+    (property "Sheetname" "usb" (at 145.542 100.2534 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "usb.kicad_sch" (at 145.542 114.8846 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_dock"
+        (path "/64a940ff-99ed-4c6a-b1d5-72880bacaf5b" (page "3"))
+      )
+    )
+  )
+
+  (sheet (at 193.548 100.457) (size 28.448 11.049) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 4759a5a7-ef84-4583-ab2e-ea9d24eede5f)
+    (property "Sheetname" "pcie" (at 193.548 99.7454 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "pcie.kicad_sch" (at 193.548 112.0906 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_dock"
+        (path "/64a940ff-99ed-4c6a-b1d5-72880bacaf5b" (page "4"))
+      )
+    )
+  )
+
+  (sheet (at 60.452 101.6) (size 20.955 10.795) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid f8c8c612-1131-4348-a7a7-1c008ecdf3e4)
+    (property "Sheetname" "power" (at 60.452 100.8884 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "power.kicad_sch" (at 60.452 112.9796 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_dock"
+        (path "/64a940ff-99ed-4c6a-b1d5-72880bacaf5b" (page "4"))
+      )
+    )
+  )
+
+  (sheet_instances
+    (path "/" (page "1"))
+  )
+)
