@@ -1,0 +1,167 @@
+(kicad_sch (version 20230121) (generator eeschema)
+
+  (uuid 9bed7131-c603-46c6-ae3c-0e9faa418ea0)
+
+  (paper "A4")
+
+  (lib_symbols
+  )
+
+
+  (sheet (at 105.537 148.209) (size 37.084 24.638) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 1d84323f-c756-468f-aa05-d53f76b3fe2c)
+    (property "Sheetname" "fpga-power" (at 105.537 147.4974 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "fpga-power.kicad_sch" (at 105.537 173.4316 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "9"))
+      )
+    )
+  )
+
+  (sheet (at 160.147 74.803) (size 47.625 22.86) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 226fabbc-0ccf-4a06-8d0c-3f7508d4b5b2)
+    (property "Sheetname" "flash" (at 160.147 74.0914 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom) hide)
+    )
+    (property "Sheetfile" "flash.kicad_sch" (at 160.147 98.2476 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "5"))
+      )
+    )
+  )
+
+  (sheet (at 166.878 118.872) (size 27.686 23.241) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 2ce4f201-7981-4faa-9ded-0b24ac71d323)
+    (property "Sheetname" "fpga-ddr" (at 166.878 118.1604 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "fpga-ddr.kicad_sch" (at 166.878 142.6976 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "10"))
+      )
+    )
+  )
+
+  (sheet (at 100.457 72.898) (size 48.895 26.67) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 5d8c101e-63d8-417a-b55c-72ab74e8719b)
+    (property "Sheetname" "led" (at 100.457 72.1864 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom) hide)
+    )
+    (property "Sheetfile" "led.kicad_sch" (at 100.457 100.1526 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "4"))
+      )
+    )
+  )
+
+  (sheet (at 54.991 151.638) (size 34.29 20.066) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 6d7d857c-92de-4701-ba7b-b8d846967895)
+    (property "Sheetname" "fpga-config" (at 54.991 150.9264 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "fpga-config.kicad_sch" (at 54.991 172.2886 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "8"))
+      )
+    )
+  )
+
+  (sheet (at 74.422 115.443) (size 22.225 15.24) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid 7da1419f-3c1d-493c-bccd-f1d4aa764b05)
+    (property "Sheetname" "pcie" (at 74.422 114.7314 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "pcie.kicad_sch" (at 74.422 131.2676 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "6"))
+      )
+    )
+  )
+
+  (sheet (at 113.157 117.348) (size 35.56 12.7) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid b780d3b5-6a01-46cb-b503-97403d95c26a)
+    (property "Sheetname" "ddr3" (at 113.157 116.6364 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "ddr3.kicad_sch" (at 113.157 130.6326 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "7"))
+      )
+    )
+  )
+
+  (sheet (at 38.227 72.898) (size 48.26 29.21) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid c0b341f4-44f0-405a-beb8-05c2d4a9af1d)
+    (property "Sheetname" "Power" (at 38.227 72.1864 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom) hide)
+    )
+    (property "Sheetfile" "power.kicad_sch" (at 38.227 102.6926 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "3"))
+      )
+    )
+  )
+
+  (sheet (at 208.788 120.396) (size 29.337 20.574) (fields_autoplaced)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0000))
+    (uuid f1a527de-b150-4816-8a3f-8ada584d92e1)
+    (property "Sheetname" "fpga-pcie" (at 208.788 119.6844 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "fpga-pcie.kicad_sch" (at 208.788 141.5546 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (instances
+      (project "nf_tpu"
+        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "11"))
+      )
+    )
+  )
+
+  (sheet_instances
+    (path "/" (page "1"))
+  )
+)
