@@ -3,19 +3,12 @@ import os
 import argparse
 import sys
 from migen import *
-from migen.genlib.misc import WaitTimer
-from migen.genlib.resetsync import AsyncResetSynchronizer
 from litex.gen import *
-from litex_boards.platforms import colorlight_5a_75b
 from litex.soc.cores.clock import *
-from litex.soc.cores.spi_flash import ECP5SPIFlash
 from litex.soc.cores.gpio import GPIOOut
-from litex.soc.cores.led import LedChaser
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
-from liteeth.phy.ecp5rgmii import LiteEthPHYRGMII
 from litex.build.generic_platform import *
-from litex.soc.cores.uart import UARTWishboneBridge
 from litex.build.lattice import LatticePlatform
 
 _io = [
