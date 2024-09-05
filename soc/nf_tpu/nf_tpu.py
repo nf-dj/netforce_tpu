@@ -141,7 +141,41 @@ class MemSlice(Module):
                 self.ins_valid_inter_e[i].eq(tile_e.out_ins_valid)
             ]
 
-# switch routing
+class MemInsDec(Module):
+    def __init__(self, id_no_w=3, id_no_e=4, ins_width=64):
+        self.id_no_w = id_no_w
+        self.id_no_e = id_no_e
+        self.ins_width = ins_width
+
+        self.clk = ClockSignal()
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
+
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
+        self.out_slice_ins_w = Signal(ins_width)
+        self.out_slice_ins_e = Signal(ins_width)
+        self.out_slice_ins_valid_w = Signal()
+        self.out_slice_ins_valid_e = Signal()
+
+        self.comb += [
+            self.out_slice_ins_valid_w.eq(self.in_ins_valid & (self.in_ins[0:8] == self.id_no_w)),
+            self.out_slice_ins_valid_e.eq(self.in_ins_valid & (self.in_ins[0:8] == self.id_no_e)),
+            self.out_slice_ins_w.eq(self.in_ins),
+            self.out_slice_ins_e.eq(self.in_ins)
+        ]
+
+        self.sync += [
+            If(self.out_slice_ins_valid_w | self.out_slice_ins_valid_e,
+                self.out_ins.eq(0),
+                self.out_ins_valid.eq(0)
+            ).Else(
+                self.out_ins.eq(self.in_ins),
+                self.out_ins_valid.eq(self.in_ins_valid)
+            )
+        ]
+
+# routing switch
 
 class SwitchTile(Module):
     def __init__(self, tile_no=0, ins_width=64):
@@ -268,6 +302,35 @@ class SwitchSlice(Module):
                 self.comb += self.intermediate_or[i].eq(self.intermediate_or[i-1] | self.tile_out_data_valid[i])
 
         self.comb += self.out_data_valid.eq(self.intermediate_or[-1])
+
+class SwitchInsDec(Module):
+    def __init__(self, id_no=2, ins_width=64):
+        self.id_no = id_no
+        self.ins_width = ins_width
+
+        self.clk = ClockSignal()
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
+
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
+        self.out_slice_ins = Signal(ins_width)
+        self.out_slice_ins_valid = Signal()
+
+        self.comb += [
+            self.out_slice_ins_valid.eq(self.in_ins_valid & (self.in_ins[0:8] == self.id_no)),
+            self.out_slice_ins.eq(self.in_ins)
+        ]
+
+        self.sync += [
+            If(self.out_slice_ins_valid,
+                self.out_ins.eq(0),
+                self.out_ins_valid.eq(0)
+            ).Else(
+                self.out_ins.eq(self.in_ins),
+                self.out_ins_valid.eq(self.in_ins_valid)
+            )
+        ]
 
 # dot product compute
 
@@ -464,6 +527,35 @@ class DotSlice(Module):
                 self.ins_valid_inter[i].eq(tile.out_ins_valid)
             ]
 
+class DotInsDec(Module):
+    def __init__(self, id_no=6, ins_width=64):
+        self.id_no = id_no
+        self.ins_width = ins_width
+
+        self.clk = ClockSignal()
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
+
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
+        self.out_slice_ins = Signal(ins_width)
+        self.out_slice_ins_valid = Signal()
+
+        self.comb += [
+            self.out_slice_ins_valid.eq(self.in_ins_valid & (self.in_ins[0:8] == self.id_no)),
+            self.out_slice_ins.eq(self.in_ins)
+        ]
+
+        self.sync += [
+            If(self.out_slice_ins_valid,
+                self.out_ins.eq(0),
+                self.out_ins_valid.eq(0)
+            ).Else(
+                self.out_ins.eq(self.in_ins),
+                self.out_ins_valid.eq(self.in_ins_valid)
+            )
+        ]
+
 # vector compute
 
 class VecUnit(Module):
@@ -633,27 +725,64 @@ class VecSlice(Module):
                 self.ins_valid_inter[i].eq(tile.out_ins_valid)
             ]
 
+class VecInsDec(Module):
+    def __init__(self, id_no=5, ins_width=64):
+        self.id_no = id_no
+        self.ins_width = ins_width
+
+        self.clk = ClockSignal()
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
+
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
+        self.out_slice_ins = Signal(ins_width)
+        self.out_slice_ins_valid = Signal()
+
+        self.comb += [
+            self.out_slice_ins_valid.eq(self.in_ins_valid & (self.in_ins[0:8] == self.id_no)),
+            self.out_slice_ins.eq(self.in_ins)
+        ]
+
+        self.sync += [
+            If(self.out_slice_ins_valid,
+                self.out_ins.eq(0),
+                self.out_ins_valid.eq(0)
+            ).Else(
+                self.out_ins.eq(self.in_ins),
+                self.out_ins_valid.eq(self.in_ins_valid)
+            )
+        ]
+
 if __name__ == "__main__":
     #top = MemTile()
     #out = verilog.convert(top, ios={top.in_stream, top.in_stream_valid, top.out_stream, top.out_stream_valid, top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid})
     #top = MemSlice()
     #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_w_valid, top.out_stream_e, top.out_stream_e_valid, top.in_stream_e, top.in_stream_e_valid, top.out_stream_w, top.out_stream_w_valid, top.in_ins_w, top.in_ins_e, top.in_ins_valid_w, top.in_ins_valid_e})
+    #top = MemInsDec()
+    #out = verilog.convert(top, ios={top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid, top.out_slice_ins_e, top.out_slice_ins_valid_e})
     #top = SwitchTile()
     #out = verilog.convert(top, ios={top.in_stream, top.in_stream_valid, top.out_stream, top.out_stream_valid, top.in_data, top.in_data_valid, top.out_data, top.out_data_valid, top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid})
     #top = SwitchSlice()
     #out = verilog.convert(top, ios={top.in_stream, top.in_stream_valid, top.out_stream, top.out_stream_valid, top.in_data, top.in_data, top.out_data, top.out_data_valid, top.in_ins, top.in_ins_valid})
+    #top = SwitchInsDec()
+    #out = verilog.convert(top, ios={top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid, top.out_slice_ins, top.out_slice_ins_valid})
     #top = DotUnit()
     #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_w_valid, top.in_stream_e, top.in_stream_e_valid, top.in_weight, top.out_stream_e, top.out_stream_w, top.out_weight})
     #top = DotTile()
     #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_w_valid, top.in_stream_e, top.in_stream_e_valid, top.in_ins, top.in_ins_valid, top.out_stream_e, top.out_stream_e_valid, top.out_stream_w, top.out_stream_w_valid, top.out_ins, top.out_ins_valid})
     #top = DotSlice()
     #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_w_valid, top.out_stream_e, top.out_stream_e_valid, top.out_stream_w, top.out_stream_w_valid, top.in_stream_e, top.in_stream_e_valid, top.in_ins, top.in_ins_valid})
+    #top = DotInsDec()
+    #out = verilog.convert(top, ios={top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid, top.out_slice_ins, top.out_slice_ins_valid})
     #top = VecUnit()
     #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_valid_w, top.out_stream_e, top.in_stream_e, top.in_stream_valid_e, top.out_stream_w, top.in_weight, top.out_weight})
     #top = VecTile()
     #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_valid_w, top.out_stream_e, top.in_stream_e, top.in_stream_valid_e, top.out_stream_w, top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid})
-    top = VecSlice()
-    out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_w_valid, top.out_stream_e, top.out_stream_e_valid, top.out_stream_w, top.out_stream_w_valid, top.in_stream_e, top.in_stream_e_valid, top.in_ins, top.in_ins_valid})
+    #top = VecSlice()
+    #out = verilog.convert(top, ios={top.in_stream_w, top.in_stream_w_valid, top.out_stream_e, top.out_stream_e_valid, top.out_stream_w, top.out_stream_w_valid, top.in_stream_e, top.in_stream_e_valid, top.in_ins, top.in_ins_valid})
+    top = VecInsDec()
+    out = verilog.convert(top, ios={top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid, top.out_slice_ins, top.out_slice_ins_valid})
 
     with open("build/nf_tpu.v", "w") as f:
         f.write(out.main_source)
