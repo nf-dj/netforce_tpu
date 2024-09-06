@@ -6034,6 +6034,10 @@
     (effects (font (size 1.27 1.27)) (justify right bottom))
     (uuid 2952f4bd-d0ca-45ed-82db-e502ae94dd05)
   )
+  (text "FIXME: need ddr3_vref on fpga?" (at 79.502 22.987 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid ece9da87-3449-4a7a-9777-fb6fd91b2013)
+  )
 
   (label "vddspd" (at 242.316 179.959 0) (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left bottom))
