@@ -4251,23 +4251,6 @@
     )
   )
 
-  (sheet (at 57.023 269.621) (size 32.385 15.875) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid 6e552d3a-a3ab-41c8-8995-e5d0014af0b9)
-    (property "Sheetname" "fpga-power" (at 57.023 268.9094 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "fpga-power.kicad_sch" (at 57.023 286.0806 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "nf_tpu"
-        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0" (page "7"))
-      )
-    )
-  )
-
   (sheet (at 105.283 269.621) (size 22.225 15.24) (fields_autoplaced)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0000))
