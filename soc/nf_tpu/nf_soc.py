@@ -4,8 +4,8 @@ from litex.soc.integration.builder import Builder
 from litex_boards.platforms import arty
 from litedram.common import LiteDRAMNativePort
 from litedram.frontend.wishbone import LiteDRAMWishbone2Native
-from litex.build.lattice import LatticePlatform
-from nf_tpu import NF_Tpu
+from nf_tpu import NF_TPU
+from nf_ecp5 import NF_ECP5
 
 class NF_SoC(SoCCore):
     def __init__(self, platform, **kwargs):
@@ -21,7 +21,7 @@ class NF_SoC(SoCCore):
             size=kwargs.get("max_sdram_size", 0x20000000)  # 512MB
         )
 
-        self.tpu = NF_Tpu(data_width=32)
+        self.tpu = NF_TPU(data_width=32)
 
         self.comb += [
             self.uart.sink.valid.eq(self.tpu.sink.valid),
@@ -40,24 +40,7 @@ class NF_SoC(SoCCore):
         
         self.bus.add_master(name="tpu", master=self.tpu.wb)
 
-_io = [
-    ("clk25", 0, Pins("P6"), IOStandard("LVCMOS33")),
-    ("user_led", 0, Pins("R6"), IOStandard("LVCMOS33")),
-    ("serial", 0,
-        Subsignal("tx", Pins("M11")),
-        Subsignal("rx", Pins("N11")),
-        IOStandard("LVCMOS33")
-    )
-]
-
-class NF_Platform(LatticePlatform):
-    default_clk_name = "clk25"
-    default_clk_period = 1e9 / 25e6
-
-    def __init__(self):
-        LatticePlatform.__init__(self, "LFE5U-25F-6BG256C", _io, toolchain="trellis")
-
-platform = NF_Platform()
+platform = NF_ECP5()
 
 soc = NF_SoC(platform)
 

@@ -1116,7 +1116,7 @@ class DramIO(Module):
 
 # top
 
-class NF_Tpu(Module):
+class NF_TPU(Module):
     def __init__(self, stream_sink=None, stream_source=None, input_width = 64, ins_width = 64, data_width = 512, addr_width = 32, num_tiles = 16):
         self.input_width = input_width
         self.ins_width = ins_width
@@ -1148,7 +1148,7 @@ class NF_Tpu(Module):
             self.sw_in_data.eq(self.input_sw_out_data)
         ]
 
-        self.submodules.stream = StreamIO(
+        self.submodules.stream_io = StreamIO(
             id_no=0,
             sink=stream_sink,
             source=stream_source
@@ -1162,7 +1162,7 @@ class NF_Tpu(Module):
             sw_data_in=sw_data_out,
             sw_data_in_valid=sw_data_out_valid)
 
-        self.submodules.dram_if1 = DramIO(
+        self.submodules.dram_io = DramIO(
             bus,
             id_no=1,
             data_width=data_width,
