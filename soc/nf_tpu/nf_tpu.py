@@ -1116,7 +1116,7 @@ class DramIO(Module):
 
 # top
 
-class Tpu(Module):
+class NF_Tpu(Module):
     def __init__(self, stream_sink=None, stream_source=None, input_width = 64, ins_width = 64, data_width = 512, addr_width = 32, num_tiles = 16):
         self.input_width = input_width
         self.ins_width = ins_width
