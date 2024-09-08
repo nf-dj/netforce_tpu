@@ -754,6 +754,605 @@ class VecInsDec(Module):
             )
         ]
 
+# stream 
+
+class Conv64To512(Module):
+    def __init__(self):
+        self.clk = ClockSignal()
+        
+        self.data_in = Signal(64)
+        self.data_in_valid = Signal()
+        
+        self.data_out = Signal(512)
+        self.data_out_valid = Signal()
+
+        self.buffer = Array([Signal(64) for _ in range(8)])
+        self.count = Signal(3)
+
+        self.sync += [
+            If(self.data_in_valid,
+                self.buffer[self.count].eq(self.data_in),
+                If(self.count == 7,
+                    self.data_out.eq(Cat(self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3],
+                                         self.buffer[4], self.buffer[5], self.buffer[6], self.buffer[7])),
+                    self.data_out_valid.eq(1),
+                    self.count.eq(0)
+                ).Else(
+                    self.count.eq(self.count + 1),
+                    self.data_out_valid.eq(0)
+                )
+            ).Else(
+                self.data_out_valid.eq(0)
+            )
+        ]
+
+    def __init__(self, fifo_depth=64):
+        self.input_width = 512
+        self.output_width = 64
+        self.ptr_bits = log2_int(fifo_depth)
+
+        self.clk = ClockSignal()
+        self.data_in = Signal(self.input_width)
+        self.wr_en = Signal()
+        self.rd_en = Signal()
+
+        self.data_out = Signal(self.output_width)
+        self.data_out_valid = Signal()
+        self.fifo_full = Signal()
+        self.fifo_empty = Signal()
+
+        self.fifo_mem = Memory(self.input_width, fifo_depth)
+        self.specials += self.fifo_mem
+        self.wr_port = self.fifo_mem.get_port(write_capable=True)
+        self.rd_port = self.fifo_mem.get_port(async_read=True)
+        self.specials += self.wr_port, self.rd_port
+
+        self.wr_ptr = Signal(self.ptr_bits)
+        self.rd_ptr = Signal(self.ptr_bits)
+        self.rd_shift = Signal(3)
+        self.fifo_length = Signal(self.ptr_bits + 1)
+
+        self.comb += [
+            self.fifo_empty.eq((self.wr_ptr == self.rd_ptr) & (self.rd_shift == 0)),
+            self.fifo_full.eq((self.wr_ptr + 1) == self.rd_ptr),
+            self.fifo_length.eq(Mux(self.wr_ptr >= self.rd_ptr,
+                                    self.wr_ptr - self.rd_ptr,
+                                    fifo_depth + self.wr_ptr - self.rd_ptr))
+        ]
+
+        self.sync += [
+            If(self.wr_en & ~self.fifo_full,
+               self.wr_port.adr.eq(self.wr_ptr),
+               self.wr_port.dat_w.eq(self.data_in),
+               self.wr_port.we.eq(1),
+               self.wr_ptr.eq(self.wr_ptr + 1)
+            ).Else(
+                self.wr_port.we.eq(0)
+            )
+        ]
+
+        self.sync += [
+            If(self.rd_en & ~self.fifo_empty,
+               self.rd_port.adr.eq(self.rd_ptr),
+               self.data_out.eq(self.rd_port.dat_r[self.rd_shift * self.output_width:
+                                                   (self.rd_shift + 1) * self.output_width]),
+               self.rd_shift.eq(self.rd_shift + 1),
+               self.data_out_valid.eq(1),
+               If(self.rd_shift == (self.input_width // self.output_width - 1),
+                  self.rd_shift.eq(0),
+                  self.rd_ptr.eq(self.rd_ptr + 1)
+               )
+            ).Else(
+                self.data_out_valid.eq(0)
+            )
+        ]
+
+class StreamIO(Module):
+    def __init__(self, id_no=0, data_width=512, ins_width=64, pcie_width=64):
+        self.clk = ClockSignal()
+        self.rx_tdata = Signal(pcie_width)
+        self.rx_tvalid = Signal()
+        self.rx_tlast = Signal()
+        self.tx_tready = Signal()
+        self.sw_data_in = Signal(data_width)
+        self.sw_data_in_valid = Signal()
+
+        self.rx_tready = Signal()
+        self.tx_tdata = Signal(pcie_width)
+        self.tx_tvalid = Signal()
+        self.tx_tlast = Signal()
+        self.ins_out = Signal(ins_width)
+        self.ins_out_valid = Signal()
+        self.sw_data_out = Signal(data_width)
+        self.sw_data_out_valid = Signal()
+
+        self.rx_state = Signal(2)
+        self.rx_len = Signal(16)
+        self.tx_state = Signal(2)
+        self.tx_len = Signal(16)
+        self.rx_conv_data_in = Signal(pcie_width)
+        self.rx_conv_data_in_valid = Signal()
+
+        self.RX_STATE_INS = 0
+        self.RX_STATE_DATA = 1
+        self.RX_STATE_NOP = 2
+        self.TX_STATE_PASS = 0
+        self.TX_STATE_DATA = 1
+        self.OP_READ_DATA = 1
+        self.OP_WRITE_DATA = 2
+        self.OP_NOP = 3
+
+        self.submodules.rx_conv = Conv64To512()
+        self.submodules.tx_fifo = Fifo512To64()
+
+        self.comb += [
+            self.rx_tready.eq((self.rx_state == self.RX_STATE_INS) | (self.rx_state == self.RX_STATE_DATA)),
+            self.tx_fifo.clk.eq(self.clk),
+            self.tx_fifo.data_in.eq(self.sw_data_in),
+            self.tx_fifo.wr_en.eq(self.sw_data_in_valid),
+            self.tx_tdata.eq(self.tx_fifo.data_out),
+            self.tx_tvalid.eq(self.tx_fifo.data_out_valid),
+            self.tx_fifo.rd_en.eq(self.tx_tready),
+            self.rx_conv.clk.eq(self.clk),
+            self.rx_conv.data_in.eq(self.rx_conv_data_in),
+            self.rx_conv.data_in_valid.eq(self.rx_conv_data_in_valid),
+            self.sw_data_out.eq(self.rx_conv.data_out),
+            self.sw_data_out_valid.eq(self.rx_conv.data_out_valid)
+        ]
+
+        self.submodules.fsm = FSM(reset_state="RX_INS")
+        self.fsm.act("RX_INS",
+            NextValue(self.rx_conv_data_in_valid, 0),
+            If(self.rx_tvalid,
+                If(self.rx_tdata[0:8] == 0,
+                    Case(self.rx_tdata[8:16], {
+                        self.OP_READ_DATA: [
+                            NextState("RX_DATA"),
+                            NextValue(self.rx_len, self.rx_tdata[16:32])
+                        ],
+                        self.OP_WRITE_DATA: [
+                            NextValue(self.tx_state, self.TX_STATE_DATA),
+                            NextValue(self.tx_len, self.rx_tdata[16:32])
+                        ],
+                        self.OP_NOP: [
+                            NextState("RX_NOP"),
+                            NextValue(self.rx_len, self.rx_tdata[16:32])
+                        ]
+                    }),
+                    NextValue(self.ins_out, 0),
+                    NextValue(self.ins_out_valid, 0)
+                ).Else(
+                    NextValue(self.ins_out, self.rx_tdata),
+                    NextValue(self.ins_out_valid, 1)
+                )
+            ).Else(
+                NextValue(self.ins_out, 0),
+                NextValue(self.ins_out_valid, 0)
+            )
+        )
+        self.fsm.act("RX_DATA",
+            If(self.rx_tvalid,
+                NextValue(self.rx_conv_data_in, self.rx_tdata),
+                NextValue(self.rx_conv_data_in_valid, 1),
+                If(self.rx_len == 0,
+                    NextState("RX_INS")
+                ).Else(
+                    NextValue(self.rx_len, self.rx_len - 1)
+                )
+            ).Else(
+                NextValue(self.rx_conv_data_in_valid, 0)
+            )
+        )
+        self.fsm.act("RX_NOP",
+            If(self.rx_len == 0,
+                NextState("RX_INS")
+            ).Else(
+                NextValue(self.rx_len, self.rx_len - 1)
+            )
+        )
+
+        self.sync += [
+            If(self.tx_state == self.TX_STATE_DATA,
+                If(self.tx_tvalid,
+                    If(self.tx_len == 0,
+                        NextValue(self.tx_state, self.TX_STATE_PASS),
+                        NextValue(self.tx_tlast, 1)
+                    ).Else(
+                        NextValue(self.tx_len, self.tx_len - 1),
+                        NextValue(self.tx_tlast, 0)
+                    )
+                )
+            )
+        ]
+
+# external memory
+
+class DramIO(Module):
+    def __init__(self, id_no=1, data_width=512, addr_width=32, burst_len_max=256, ins_width=64):
+        self.clk = ClockSignal()
+
+        self.axi_araddr = Signal(addr_width)
+        self.axi_arlen = Signal(8)
+        self.axi_arvalid = Signal()
+        self.axi_arready = Signal()
+
+        self.axi_rdata = Signal(data_width)
+        self.axi_rvalid = Signal()
+        self.axi_rready = Signal()
+
+        self.axi_awaddr = Signal(addr_width)
+        self.axi_awlen = Signal(8)
+        self.axi_awvalid = Signal()
+        self.axi_awready = Signal()
+
+        self.axi_wdata = Signal(data_width)
+        self.axi_wvalid = Signal()
+        self.axi_wready = Signal()
+
+        self.ins_in = Signal(ins_width)
+        self.ins_in_valid = Signal()
+
+        self.ins_out = Signal(ins_width)
+        self.ins_out_valid = Signal()
+
+        self.sw_data_out = Signal(data_width)
+        self.sw_data_out_valid = Signal()
+        self.sw_data_in = Signal(data_width)
+        self.sw_data_in_valid = Signal()
+
+        self.state = Signal(3)
+        self.burst_counter = Signal(8)
+        self.dram_ins_in_valid = Signal()
+        self.dram_ins_in = Signal(ins_width)
+
+        self.STATE_IDLE = 0
+        self.STATE_READ_INS = 1
+        self.STATE_READ_DATA = 2
+        self.STATE_WRITE_DATA = 3
+        self.OP_NOP = 0
+        self.OP_READ_INS = 1
+        self.OP_READ_DATA = 2
+        self.OP_WRITE_DATA = 3
+
+        self.submodules.fifo = IdFifo()
+
+        self.comb += [
+            self.fifo.ins_in.eq(Mux(self.ins_in_valid & (self.ins_in[0:8] == id_no),
+                                    self.ins_in, self.dram_ins_in)),
+            self.fifo.ins_in_valid.eq((self.ins_in_valid & (self.ins_in[0:8] == id_no)) | self.dram_ins_in_valid),
+            self.fifo.ins_out_ready.eq(self.state == self.STATE_IDLE)
+        ]
+
+        self.submodules.fsm = FSM(reset_state="IDLE")
+        self.fsm.act("IDLE",
+            NextValue(self.ins_out_valid, 0),
+            NextValue(self.dram_ins_in_valid, 0),
+            NextValue(self.sw_data_out_valid, 0),
+            NextValue(self.ins_out, 0),
+            NextValue(self.sw_data_out, 0),
+            NextValue(self.axi_wvalid, 0),
+            If(self.fifo.ins_out_valid,
+                Case(self.fifo.ins_out[8:16], {
+                    self.OP_NOP: NextState("IDLE"),
+                    self.OP_READ_INS: [
+                        NextState("READ_INS"),
+                        NextValue(self.axi_araddr, self.fifo.ins_out[16:48]),
+                        NextValue(self.axi_arlen, self.fifo.ins_out[48:56]),
+                        NextValue(self.burst_counter, self.fifo.ins_out[48:56]),
+                        NextValue(self.axi_arvalid, 1),
+                        NextValue(self.axi_rready, 1)
+                    ],
+                    self.OP_READ_DATA: [
+                        NextState("READ_DATA"),
+                        NextValue(self.axi_araddr, self.fifo.ins_out[16:48]),
+                        NextValue(self.axi_arlen, self.fifo.ins_out[48:56]),
+                        NextValue(self.burst_counter, self.fifo.ins_out[48:56]),
+                        NextValue(self.axi_arvalid, 1),
+                        NextValue(self.axi_rready, 1)
+                    ],
+                    self.OP_WRITE_DATA: [
+                        NextState("WRITE_DATA"),
+                        NextValue(self.axi_awaddr, self.fifo.ins_out[16:48]),
+                        NextValue(self.axi_awlen, self.fifo.ins_out[48:56]),
+                        NextValue(self.burst_counter, self.fifo.ins_out[48:56]),
+                        NextValue(self.axi_awvalid, 1)
+                    ]
+                })
+            )
+        )
+        self.fsm.act("READ_INS",
+            If(self.axi_arvalid & self.axi_arready,
+                NextValue(self.axi_arvalid, 0)
+            ),
+            If(self.axi_rvalid,
+                If(self.axi_rdata[0:8] == 0,
+                    NextValue(self.dram_ins_in, self.axi_rdata[0:64]),
+                    NextValue(self.dram_ins_in_valid, 1),
+                    NextValue(self.ins_out, 0),
+                    NextValue(self.ins_out_valid, 0)
+                ).Else(
+                    NextValue(self.ins_out, self.axi_rdata[0:64]),
+                    NextValue(self.ins_out_valid, 1),
+                    NextValue(self.dram_ins_in, 0),
+                    NextValue(self.dram_ins_in_valid, 0)
+                ),
+                If(self.burst_counter == 0,
+                    NextState("IDLE"),
+                    NextValue(self.axi_rready, 0)
+                ).Else(
+                    NextValue(self.burst_counter, self.burst_counter - 1)
+                )
+            )
+        )
+        self.fsm.act("READ_DATA",
+            If(self.axi_arvalid & self.axi_arready,
+                NextValue(self.axi_arvalid, 0)
+            ),
+            If(self.axi_rvalid,
+                NextValue(self.sw_data_out, self.axi_rdata),
+                NextValue(self.sw_data_out_valid, 1),
+                If(self.burst_counter == 0,
+                    NextState("IDLE"),
+                    NextValue(self.axi_rready, 0)
+                ).Else(
+                    NextValue(self.burst_counter, self.burst_counter - 1)
+                )
+            )
+        )
+        self.fsm.act("WRITE_DATA",
+            If(self.axi_awvalid & ~self.axi_awready,
+                NextValue(self.axi_awvalid, 0)
+            ),
+            If(self.sw_data_in_valid,
+                NextValue(self.axi_wdata, self.sw_data_in),
+                NextValue(self.axi_wvalid, 1),
+                If(self.burst_counter == 0,
+                    NextState("IDLE")
+                ).Else(
+                    NextValue(self.burst_counter, self.burst_counter - 1)
+                )
+            )
+        )
+
+        self.sync += [
+            If(self.fifo.ins_in_valid,
+                self.ins_out.eq(0),
+                self.ins_out_valid.eq(0)
+            ).Else(
+                self.ins_out.eq(self.ins_in),
+                self.ins_out_valid.eq(self.ins_in_valid)
+            )
+        ]
+
+# top
+
+class Tpu(Module):
+    def __init__(self, stream_sink=None, stream_source=None, input_width = 64, ins_width = 64, data_width = 512, addr_width = 32, num_tiles = 16):
+        self.input_width = input_width
+        self.ins_width = ins_width
+        self.data_width = data_width
+        self.num_tiles = num_tiles
+
+        self.clk = ClockSignal()
+        self.reset = Signal()
+
+        self.bus = wishbone.Interface()
+
+        self.input_sw_out_data = Signal(data_width)
+        self.input_sw_out_data_valid = Signal()
+        self.ins_inter = Array([Signal(ins_width) for _ in range(8)])
+        self.ins_valid_inter = Array([Signal() for _ in range(8)])
+        self.sw_data_in = Signal(data_width)
+        self.sw_data_in_valid = Signal()
+        self.sw_out_data = Signal(data_width)
+        self.sw_out_data_valid = Signal()
+        self.slice_ins = Array([Signal(ins_width) for _ in range(8)])
+        self.slice_ins_valid = Array([Signal() for _ in range(8)])
+        self.stream_inter_w = Array([Signal(data_width) for _ in range(6)])
+        self.stream_inter_e = Array([Signal(data_width) for _ in range(6)])
+        self.stream_valid_inter_w = Array([Signal(num_tiles) for _ in range(6)])
+        self.stream_valid_inter_e = Array([Signal(num_tiles) for _ in range(6)])
+
+        self.comb += [
+            self.sw_in_data_valid.eq(self.input_sw_out_data_valid),
+            self.sw_in_data.eq(self.input_sw_out_data)
+        ]
+
+        self.submodules.stream = StreamIO(
+			id_no=0,
+			sink=stream_sink,
+			source=stream_source
+			data_width=data_width,
+			ins_width=ins_width,
+			input_width=input_width,
+			ins_out=ins_inter[0],
+			ins_out_valid=ins_valid_inter[0],
+			sw_data_out=pcie_sw_data_out,
+			sw_data_out_valid=pcie_sw_data_out_valid,
+			sw_data_in=sw_data_out,
+			sw_data_in_valid=sw_data_out_valid)
+
+        self.submodules.dram_if1 = DramIO(
+            id_no=1,
+            data_width=data_width,
+            addr_width=addr_width,
+            ins_width=ins_width,
+            clk=self.clk,
+            axi_araddr=self.dram_araddr,
+            axi_arlen=self.dram_arlen,
+            axi_arvalid=self.dram_arvalid,
+            axi_arready=self.dram_arready,
+            axi_rdata=self.dram_rdata,
+            axi_rvalid=self.dram_rvalid,
+            axi_rready=self.dram_rready,
+            ins_in=self.ins_inter[0],
+            ins_in_valid=self.ins_valid_inter[0],
+            ins_out=self.ins_inter[1],
+            ins_out_valid=self.ins_valid_inter[1],
+            sw_data_out=self.dram_sw_data_out,
+            sw_data_out_valid=self.dram_sw_data_out_valid,
+            sw_data_in=self.sw_data_out,
+            sw_data_in_valid=self.sw_data_out_valid
+        )
+
+		self.submodules.sw_id1 = SwitchInsDec(
+            id_no=2,
+            clk=self.clk,
+            in_ins=self.ins_inter[0],
+            in_ins_valid=self.ins_valid_inter[0],
+            out_ins=self.ins_inter[1],
+            out_ins_valid=self.ins_valid_inter[1],
+            out_slice_ins=self.slice_ins[0],
+            out_slice_ins_valid=self.slice_ins_valid[0]
+        )
+
+		self.submodules.sw_slice1 = SwitchSlice(
+            clk=self.clk,
+            in_stream=self.stream_inter_e[0],
+            in_stream_valid=self.stream_valid_inter_e[0],
+            out_stream=self.stream_inter_w[0],
+            out_stream_valid=self.stream_valid_inter_w[0],
+            in_data=self.sw_in_data,
+            in_data_valid=self.sw_in_data_valid,
+            out_data=self.sw_out_data,
+            out_data_valid=self.sw_out_data_valid,
+            in_ins=self.slice_ins[0],
+            in_ins_valid=self.slice_ins_valid[0]
+        )
+
+		self.submodules.mem_id1 = MemInsDec(
+            id_no_w=3,
+            id_no_e=4,
+            clk=self.clk,
+            in_ins=self.ins_inter[2],
+            in_ins_valid=self.ins_valid_inter[2],
+            out_ins=self.ins_inter[3],
+            out_ins_valid=self.ins_valid_inter[3],
+            out_slice_ins_w=self.slice_ins[1],
+            out_slice_ins_valid_w=self.slice_ins_valid[1],
+            out_slice_ins_e=self.slice_ins[2],
+            out_slice_ins_valid_e=self.slice_ins_valid[2]
+        )
+
+		self.submodules.mem_slice1 = MemSlice(
+            clk=self.clk,
+            in_stream_w=self.stream_inter_w[0],
+            in_stream_w_valid=self.stream_valid_inter_w[0],
+            out_stream_e=self.stream_inter_e[0],
+            out_stream_e_valid=self.stream_valid_inter_e[0],
+            out_stream_w=self.stream_inter_w[1],
+            out_stream_w_valid=self.stream_valid_inter_w[1],
+            in_stream_e=self.stream_inter_e[1],
+            in_stream_e_valid=self.stream_valid_inter_e[1],
+            in_ins_w=self.slice_ins[1],
+            in_ins_valid_w=self.slice_ins_valid[1],
+            in_ins_e=self.slice_ins[2],
+            in_ins_valid_e=self.slice_ins_valid[2]
+        )
+
+		self.submodules.mem_id2 = MemInsDec(
+            id_no_w=5,
+            id_no_e=6,
+            clk=self.clk,
+            in_ins=self.ins_inter[3],
+            in_ins_valid=self.ins_valid_inter[3],
+            out_ins=self.ins_inter[4],
+            out_ins_valid=self.ins_valid_inter[4],
+            out_slice_ins_w=self.slice_ins[3],
+            out_slice_ins_valid_w=self.slice_ins_valid[3],
+            out_slice_ins_e=self.slice_ins[4],
+            out_slice_ins_valid_e=self.slice_ins_valid[4]
+        )
+
+        self.submodules.mem_slice2 = MemSlice(
+            clk=self.clk,
+            in_stream_w=self.stream_inter_w[1],
+            in_stream_w_valid=self.stream_valid_inter_w[1],
+            out_stream_e=self.stream_inter_e[1],
+            out_stream_e_valid=self.stream_valid_inter_e[1],
+            out_stream_w=self.stream_inter_w[2],
+            out_stream_w_valid=self.stream_valid_inter_w[2],
+            in_stream_e=self.stream_inter_e[2],
+            in_stream_e_valid=self.stream_valid_inter_e[2],
+            in_ins_w=self.slice_ins[3],
+            in_ins_valid_w=self.slice_ins_valid[3],
+            in_ins_e=self.slice_ins[4],
+            in_ins_valid_e=self.slice_ins_valid[4]
+        )
+
+		self.submodules.vec_id1 = VecInsDec(
+            id_no=7,
+            clk=self.clk,
+            in_ins=self.ins_inter[4],
+            in_ins_valid=self.ins_valid_inter[4],
+            out_ins=self.ins_inter[5],
+            out_ins_valid=self.ins_valid_inter[5],
+            out_slice_ins=self.slice_ins[5],
+            out_slice_ins_valid=self.slice_ins_valid[5]
+        )
+
+        self.submodules.vec_slice1 = VecSlice(
+            clk=self.clk,
+            in_stream_w=self.stream_inter_w[2],
+            in_stream_w_valid=self.stream_valid_inter_w[2],
+            out_stream_e=self.stream_inter_e[2],
+            out_stream_e_valid=self.stream_valid_inter_e[2],
+            out_stream_w=self.stream_inter_w[3],
+            out_stream_w_valid=self.stream_valid_inter_w[3],
+            in_stream_e=self.stream_inter_e[3],
+            in_stream_e_valid=self.stream_valid_inter_e[3],
+            in_ins=self.slice_ins[5],
+            in_ins_valid=self.slice_ins_valid[5]
+        )
+
+        self.submodules.dot_id1 = DotInsDec(
+            id_no=8,
+            clk=self.clk,
+            in_ins=self.ins_inter[5],
+            in_ins_valid=self.ins_valid_inter[5],
+            out_ins=self.ins_inter[6],
+            out_ins_valid=self.ins_valid_inter[6],
+            out_slice_ins=self.slice_ins[6],
+            out_slice_ins_valid=self.slice_ins_valid[6]
+        )
+
+        self.submodules.dot_slice1 = DotSlice(
+            clk=self.clk,
+            in_stream_w=self.stream_inter_w[3],
+            in_stream_w_valid=self.stream_valid_inter_w[3],
+            out_stream_e=self.stream_inter_e[3],
+            out_stream_e_valid=self.stream_valid_inter_e[3],
+            out_stream_w=self.stream_inter_w[4],
+            out_stream_w_valid=self.stream_valid_inter_w[4],
+            in_stream_e=self.stream_inter_e[4],
+            in_stream_e_valid=self.stream_valid_inter_e[4],
+            in_ins=self.slice_ins[6],
+            in_ins_valid=self.slice_ins_valid[6]
+        )
+
+        self.submodules.dot_id2 = DotInsDec(
+            id_no=9,
+            clk=self.clk,
+            in_ins=self.ins_inter[6],
+            in_ins_valid=self.ins_valid_inter[6],
+            out_ins=self.ins_inter[7],
+            out_ins_valid=self.ins_valid_inter[7],
+            out_slice_ins=self.slice_ins[7],
+            out_slice_ins_valid=self.slice_ins_valid[7]
+        )
+
+        self.submodules.dot_slice2 = DotSlice(
+            clk=self.clk,
+            in_stream_w=self.stream_inter_w[4],
+            in_stream_w_valid=self.stream_valid_inter_w[4],
+            out_stream_e=self.stream_inter_e[4],
+            out_stream_e_valid=self.stream_valid_inter_e[4],
+            in_stream_e=Signal(data_width),  # Unused input
+            in_stream_e_valid=Constant(0),
+            in_ins=self.slice_ins[7],
+            in_ins_valid=self.slice_ins_valid[7]
+        )
+
 if __name__ == "__main__":
     #top = MemTile()
     #out = verilog.convert(top, ios={top.in_stream, top.in_stream_valid, top.out_stream, top.out_stream_valid, top.in_ins, top.in_ins_valid, top.out_ins, top.out_ins_valid})
