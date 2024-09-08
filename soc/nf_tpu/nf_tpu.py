@@ -848,19 +848,12 @@ class Conv64To512(Module):
         ]
 
 class StreamIO(Module):
-    def __init__(self, id_no=0, data_width=512, ins_width=64, pcie_width=64):
-        self.clk = ClockSignal()
-        self.rx_tdata = Signal(pcie_width)
-        self.rx_tvalid = Signal()
-        self.rx_tlast = Signal()
-        self.tx_tready = Signal()
+    def __init__(self, sink, source, id_no=0, data_width=512, ins_width=64, input_width=64):
+        self.sink = sink
+        self.source = source
+
         self.sw_data_in = Signal(data_width)
         self.sw_data_in_valid = Signal()
-
-        self.rx_tready = Signal()
-        self.tx_tdata = Signal(pcie_width)
-        self.tx_tvalid = Signal()
-        self.tx_tlast = Signal()
         self.ins_out = Signal(ins_width)
         self.ins_out_valid = Signal()
         self.sw_data_out = Signal(data_width)
@@ -870,7 +863,7 @@ class StreamIO(Module):
         self.rx_len = Signal(16)
         self.tx_state = Signal(2)
         self.tx_len = Signal(16)
-        self.rx_conv_data_in = Signal(pcie_width)
+        self.rx_conv_data_in = Signal(input_width)
         self.rx_conv_data_in_valid = Signal()
 
         self.RX_STATE_INS = 0
@@ -886,14 +879,14 @@ class StreamIO(Module):
         self.submodules.tx_fifo = Fifo512To64()
 
         self.comb += [
-            self.rx_tready.eq((self.rx_state == self.RX_STATE_INS) | (self.rx_state == self.RX_STATE_DATA)),
-            self.tx_fifo.clk.eq(self.clk),
+            self.sink.ready.eq((self.rx_state == self.RX_STATE_INS) | (self.rx_state == self.RX_STATE_DATA)),
+            self.tx_fifo.clk.eq(ClockSignal()),
             self.tx_fifo.data_in.eq(self.sw_data_in),
             self.tx_fifo.wr_en.eq(self.sw_data_in_valid),
-            self.tx_tdata.eq(self.tx_fifo.data_out),
-            self.tx_tvalid.eq(self.tx_fifo.data_out_valid),
-            self.tx_fifo.rd_en.eq(self.tx_tready),
-            self.rx_conv.clk.eq(self.clk),
+            self.source.data.eq(self.tx_fifo.data_out),
+            self.source.valid.eq(self.tx_fifo.data_out_valid),
+            self.tx_fifo.rd_en.eq(self.source.ready),
+            self.rx_conv.clk.eq(ClockSignal()),
             self.rx_conv.data_in.eq(self.rx_conv_data_in),
             self.rx_conv.data_in_valid.eq(self.rx_conv_data_in_valid),
             self.sw_data_out.eq(self.rx_conv.data_out),
@@ -903,42 +896,44 @@ class StreamIO(Module):
         self.submodules.fsm = FSM(reset_state="RX_INS")
         self.fsm.act("RX_INS",
             NextValue(self.rx_conv_data_in_valid, 0),
-            If(self.rx_tvalid,
-                If(self.rx_tdata[0:8] == 0,
-                    Case(self.rx_tdata[8:16], {
+            If(self.sink.valid,
+                If(self.sink.data[0:8] == 0,
+                    Case(self.sink.data[8:16], {
                         self.OP_READ_DATA: [
                             NextState("RX_DATA"),
-                            NextValue(self.rx_len, self.rx_tdata[16:32])
+                            NextValue(self.rx_len, self.sink.data[16:32])
                         ],
                         self.OP_WRITE_DATA: [
                             NextValue(self.tx_state, self.TX_STATE_DATA),
-                            NextValue(self.tx_len, self.rx_tdata[16:32])
+                            NextValue(self.tx_len, self.sink.data[16:32])
                         ],
                         self.OP_NOP: [
                             NextState("RX_NOP"),
-                            NextValue(self.rx_len, self.rx_tdata[16:32])
+                            NextValue(self.rx_len, self.sink.data[16:32])
                         ]
                     }),
                     NextValue(self.ins_out, 0),
                     NextValue(self.ins_out_valid, 0)
                 ).Else(
-                    NextValue(self.ins_out, self.rx_tdata),
+                    NextValue(self.ins_out, self.sink.data),
                     NextValue(self.ins_out_valid, 1)
-                )
+                ),
+                self.sink.ready.eq(1)
             ).Else(
                 NextValue(self.ins_out, 0),
                 NextValue(self.ins_out_valid, 0)
             )
         )
         self.fsm.act("RX_DATA",
-            If(self.rx_tvalid,
-                NextValue(self.rx_conv_data_in, self.rx_tdata),
+            If(self.sink.valid,
+                NextValue(self.rx_conv_data_in, self.sink.data),
                 NextValue(self.rx_conv_data_in_valid, 1),
                 If(self.rx_len == 0,
                     NextState("RX_INS")
                 ).Else(
                     NextValue(self.rx_len, self.rx_len - 1)
-                )
+                ),
+                self.sink.ready.eq(1)
             ).Else(
                 NextValue(self.rx_conv_data_in_valid, 0)
             )
@@ -953,13 +948,13 @@ class StreamIO(Module):
 
         self.sync += [
             If(self.tx_state == self.TX_STATE_DATA,
-                If(self.tx_tvalid,
+                If(self.source.valid & self.source.ready,
                     If(self.tx_len == 0,
                         NextValue(self.tx_state, self.TX_STATE_PASS),
-                        NextValue(self.tx_tlast, 1)
+                        NextValue(self.source.last, 1)
                     ).Else(
                         NextValue(self.tx_len, self.tx_len - 1),
-                        NextValue(self.tx_tlast, 0)
+                        NextValue(self.source.last, 0)
                     )
                 )
             )
