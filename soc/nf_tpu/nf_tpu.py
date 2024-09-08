@@ -1149,21 +1149,21 @@ class Tpu(Module):
         ]
 
         self.submodules.stream = StreamIO(
-			id_no=0,
-			sink=stream_sink,
-			source=stream_source
-			data_width=data_width,
-			ins_width=ins_width,
-			input_width=input_width,
-			ins_out=ins_inter[0],
-			ins_out_valid=ins_valid_inter[0],
-			sw_data_out=pcie_sw_data_out,
-			sw_data_out_valid=pcie_sw_data_out_valid,
-			sw_data_in=sw_data_out,
-			sw_data_in_valid=sw_data_out_valid)
+            id_no=0,
+            sink=stream_sink,
+            source=stream_source
+            data_width=data_width,
+            ins_width=ins_width,
+            input_width=input_width,
+            ins_out=ins_inter[0],
+            ins_out_valid=ins_valid_inter[0],
+            sw_data_out=pcie_sw_data_out,
+            sw_data_out_valid=pcie_sw_data_out_valid,
+            sw_data_in=sw_data_out,
+            sw_data_in_valid=sw_data_out_valid)
 
         self.submodules.dram_if1 = DramIO(
-			bus,
+            bus,
             id_no=1,
             data_width=data_width,
             addr_width=addr_width,
@@ -1179,7 +1179,7 @@ class Tpu(Module):
             sw_data_in_valid=self.sw_data_out_valid
         )
 
-		self.submodules.sw_id1 = SwitchInsDec(
+        self.submodules.sw_id1 = SwitchInsDec(
             id_no=2,
             clk=self.clk,
             in_ins=self.ins_inter[0],
@@ -1190,7 +1190,7 @@ class Tpu(Module):
             out_slice_ins_valid=self.slice_ins_valid[0]
         )
 
-		self.submodules.sw_slice1 = SwitchSlice(
+        self.submodules.sw_slice1 = SwitchSlice(
             clk=self.clk,
             in_stream=self.stream_inter_e[0],
             in_stream_valid=self.stream_valid_inter_e[0],
@@ -1204,7 +1204,7 @@ class Tpu(Module):
             in_ins_valid=self.slice_ins_valid[0]
         )
 
-		self.submodules.mem_id1 = MemInsDec(
+        self.submodules.mem_id1 = MemInsDec(
             id_no_w=3,
             id_no_e=4,
             clk=self.clk,
@@ -1218,7 +1218,7 @@ class Tpu(Module):
             out_slice_ins_valid_e=self.slice_ins_valid[2]
         )
 
-		self.submodules.mem_slice1 = MemSlice(
+        self.submodules.mem_slice1 = MemSlice(
             clk=self.clk,
             in_stream_w=self.stream_inter_w[0],
             in_stream_w_valid=self.stream_valid_inter_w[0],
@@ -1234,7 +1234,7 @@ class Tpu(Module):
             in_ins_valid_e=self.slice_ins_valid[2]
         )
 
-		self.submodules.mem_id2 = MemInsDec(
+        self.submodules.mem_id2 = MemInsDec(
             id_no_w=5,
             id_no_e=6,
             clk=self.clk,
@@ -1264,7 +1264,7 @@ class Tpu(Module):
             in_ins_valid_e=self.slice_ins_valid[4]
         )
 
-		self.submodules.vec_id1 = VecInsDec(
+        self.submodules.vec_id1 = VecInsDec(
             id_no=7,
             clk=self.clk,
             in_ins=self.ins_inter[4],
