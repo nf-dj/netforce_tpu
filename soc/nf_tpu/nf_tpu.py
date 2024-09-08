@@ -967,160 +967,155 @@ class StreamIO(Module):
 
 # external memory
 
-class DramIO(Module):
-    def __init__(self, id_no=1, data_width=512, addr_width=32, burst_len_max=256, ins_width=64):
+class InsFifo(Module):
+    def __init__(self, ins_width=64, depth=128):
+        self.ins_width = ins_width
+        self.depth = depth
+        self.log_depth = log2_int(depth)
+
         self.clk = ClockSignal()
-
-        self.axi_araddr = Signal(addr_width)
-        self.axi_arlen = Signal(8)
-        self.axi_arvalid = Signal()
-        self.axi_arready = Signal()
-
-        self.axi_rdata = Signal(data_width)
-        self.axi_rvalid = Signal()
-        self.axi_rready = Signal()
-
-        self.axi_awaddr = Signal(addr_width)
-        self.axi_awlen = Signal(8)
-        self.axi_awvalid = Signal()
-        self.axi_awready = Signal()
-
-        self.axi_wdata = Signal(data_width)
-        self.axi_wvalid = Signal()
-        self.axi_wready = Signal()
-
         self.ins_in = Signal(ins_width)
         self.ins_in_valid = Signal()
+        self.ins_out_ready = Signal()
 
         self.ins_out = Signal(ins_width)
         self.ins_out_valid = Signal()
 
+        self.fifo = Memory(ins_width, depth)
+        self.specials += self.fifo
+        self.write_port = self.fifo.get_port(write_capable=True)
+        self.read_port = self.fifo.get_port(async_read=True)
+        self.specials += self.write_port, self.read_port
+
+        self.write_ptr = Signal(self.log_depth)
+        self.read_ptr = Signal(self.log_depth)
+        self.fifo_full = Signal()
+        self.fifo_empty = Signal()
+        self.fifo_length = Signal(self.log_depth + 1)
+
+        self.comb += [
+            self.fifo_full.eq((self.write_ptr + 1) == self.read_ptr),
+            self.fifo_empty.eq(self.write_ptr == self.read_ptr),
+            self.fifo_length.eq(Mux(self.write_ptr >= self.read_ptr,
+                                    self.write_ptr - self.read_ptr,
+                                    self.depth + self.write_ptr - self.read_ptr))
+        ]
+
+        self.sync += [
+            If(~self.fifo_full & self.ins_in_valid,
+               self.write_port.adr.eq(self.write_ptr),
+               self.write_port.dat_w.eq(self.ins_in),
+               self.write_port.we.eq(1),
+               self.write_ptr.eq(self.write_ptr + 1)
+            ).Else(
+                self.write_port.we.eq(0)
+            )
+        ]
+
+        self.sync += [
+            If(self.ins_out_ready,
+               If(~self.fifo_empty,
+                  self.read_port.adr.eq(self.read_ptr),
+                  self.ins_out.eq(self.read_port.dat_r),
+                  self.read_ptr.eq(self.read_ptr + 1),
+                  self.ins_out_valid.eq(1)
+               ).Else(
+                  self.ins_out_valid.eq(0),
+                  self.ins_out.eq(0)
+               )
+            )
+        ]
+
+class DramIO(Module):
+    def __init__(self, wishbone_bus, id_no=1, data_width=512, ins_width=64):
+        self.bus = wishbone_bus
+
+        self.clk = ClockSignal()
+        self.ins_in = Signal(ins_width)
+        self.ins_in_valid = Signal()
+        self.ins_out = Signal(ins_width)
+        self.ins_out_valid = Signal()
         self.sw_data_out = Signal(data_width)
         self.sw_data_out_valid = Signal()
         self.sw_data_in = Signal(data_width)
         self.sw_data_in_valid = Signal()
 
-        self.state = Signal(3)
+        self.state = Signal(2)
         self.burst_counter = Signal(8)
-        self.dram_ins_in_valid = Signal()
-        self.dram_ins_in = Signal(ins_width)
 
         self.STATE_IDLE = 0
-        self.STATE_READ_INS = 1
-        self.STATE_READ_DATA = 2
-        self.STATE_WRITE_DATA = 3
+        self.STATE_READ = 1
+        self.STATE_WRITE = 2
         self.OP_NOP = 0
-        self.OP_READ_INS = 1
-        self.OP_READ_DATA = 2
-        self.OP_WRITE_DATA = 3
+        self.OP_READ = 1
+        self.OP_WRITE = 2
 
-        self.submodules.fifo = IdFifo()
-
-        self.comb += [
-            self.fifo.ins_in.eq(Mux(self.ins_in_valid & (self.ins_in[0:8] == id_no),
-                                    self.ins_in, self.dram_ins_in)),
-            self.fifo.ins_in_valid.eq((self.ins_in_valid & (self.ins_in[0:8] == id_no)) | self.dram_ins_in_valid),
-            self.fifo.ins_out_ready.eq(self.state == self.STATE_IDLE)
-        ]
+        self.submodules.fifo = InsFifo(ins_width, 16)
 
         self.submodules.fsm = FSM(reset_state="IDLE")
         self.fsm.act("IDLE",
             NextValue(self.ins_out_valid, 0),
-            NextValue(self.dram_ins_in_valid, 0),
             NextValue(self.sw_data_out_valid, 0),
-            NextValue(self.ins_out, 0),
-            NextValue(self.sw_data_out, 0),
-            NextValue(self.axi_wvalid, 0),
-            If(self.fifo.ins_out_valid,
-                Case(self.fifo.ins_out[8:16], {
+            If(self.fifo.readable & (self.fifo.dout[0:8] == id_no),
+                Case(self.fifo.dout[8:16], {
                     self.OP_NOP: NextState("IDLE"),
-                    self.OP_READ_INS: [
-                        NextState("READ_INS"),
-                        NextValue(self.axi_araddr, self.fifo.ins_out[16:48]),
-                        NextValue(self.axi_arlen, self.fifo.ins_out[48:56]),
-                        NextValue(self.burst_counter, self.fifo.ins_out[48:56]),
-                        NextValue(self.axi_arvalid, 1),
-                        NextValue(self.axi_rready, 1)
+                    self.OP_READ: [
+                        NextState("READ"),
+                        NextValue(self.bus.adr, self.fifo.dout[16:48]),
+                        NextValue(self.burst_counter, self.fifo.dout[48:56]),
+                        NextValue(self.bus.cyc, 1),
+                        NextValue(self.bus.stb, 1),
+                        NextValue(self.bus.we, 0)
                     ],
-                    self.OP_READ_DATA: [
-                        NextState("READ_DATA"),
-                        NextValue(self.axi_araddr, self.fifo.ins_out[16:48]),
-                        NextValue(self.axi_arlen, self.fifo.ins_out[48:56]),
-                        NextValue(self.burst_counter, self.fifo.ins_out[48:56]),
-                        NextValue(self.axi_arvalid, 1),
-                        NextValue(self.axi_rready, 1)
-                    ],
-                    self.OP_WRITE_DATA: [
-                        NextState("WRITE_DATA"),
-                        NextValue(self.axi_awaddr, self.fifo.ins_out[16:48]),
-                        NextValue(self.axi_awlen, self.fifo.ins_out[48:56]),
-                        NextValue(self.burst_counter, self.fifo.ins_out[48:56]),
-                        NextValue(self.axi_awvalid, 1)
+                    self.OP_WRITE: [
+                        NextState("WRITE"),
+                        NextValue(self.bus.adr, self.fifo.dout[16:48]),
+                        NextValue(self.burst_counter, self.fifo.dout[48:56]),
+                        NextValue(self.bus.cyc, 1),
+                        NextValue(self.bus.stb, 1),
+                        NextValue(self.bus.we, 1)
                     ]
-                })
+                }),
+                self.fifo.re.eq(1)
             )
         )
-        self.fsm.act("READ_INS",
-            If(self.axi_arvalid & self.axi_arready,
-                NextValue(self.axi_arvalid, 0)
-            ),
-            If(self.axi_rvalid,
-                If(self.axi_rdata[0:8] == 0,
-                    NextValue(self.dram_ins_in, self.axi_rdata[0:64]),
-                    NextValue(self.dram_ins_in_valid, 1),
-                    NextValue(self.ins_out, 0),
-                    NextValue(self.ins_out_valid, 0)
-                ).Else(
-                    NextValue(self.ins_out, self.axi_rdata[0:64]),
-                    NextValue(self.ins_out_valid, 1),
-                    NextValue(self.dram_ins_in, 0),
-                    NextValue(self.dram_ins_in_valid, 0)
-                ),
-                If(self.burst_counter == 0,
-                    NextState("IDLE"),
-                    NextValue(self.axi_rready, 0)
-                ).Else(
-                    NextValue(self.burst_counter, self.burst_counter - 1)
-                )
-            )
-        )
-        self.fsm.act("READ_DATA",
-            If(self.axi_arvalid & self.axi_arready,
-                NextValue(self.axi_arvalid, 0)
-            ),
-            If(self.axi_rvalid,
-                NextValue(self.sw_data_out, self.axi_rdata),
+        self.fsm.act("READ",
+            If(self.bus.ack,
+                NextValue(self.sw_data_out, self.bus.dat_r),
                 NextValue(self.sw_data_out_valid, 1),
                 If(self.burst_counter == 0,
                     NextState("IDLE"),
-                    NextValue(self.axi_rready, 0)
+                    NextValue(self.bus.cyc, 0),
+                    NextValue(self.bus.stb, 0)
                 ).Else(
-                    NextValue(self.burst_counter, self.burst_counter - 1)
+                    NextValue(self.burst_counter, self.burst_counter - 1),
+                    NextValue(self.bus.adr, self.bus.adr + (data_width // 8))
                 )
             )
         )
-        self.fsm.act("WRITE_DATA",
-            If(self.axi_awvalid & ~self.axi_awready,
-                NextValue(self.axi_awvalid, 0)
-            ),
+        self.fsm.act("WRITE",
             If(self.sw_data_in_valid,
-                NextValue(self.axi_wdata, self.sw_data_in),
-                NextValue(self.axi_wvalid, 1),
-                If(self.burst_counter == 0,
-                    NextState("IDLE")
-                ).Else(
-                    NextValue(self.burst_counter, self.burst_counter - 1)
+                NextValue(self.bus.dat_w, self.sw_data_in),
+                If(self.bus.ack,
+                    If(self.burst_counter == 0,
+                        NextState("IDLE"),
+                        NextValue(self.bus.cyc, 0),
+                        NextValue(self.bus.stb, 0)
+                    ).Else(
+                        NextValue(self.burst_counter, self.burst_counter - 1),
+                        NextValue(self.bus.adr, self.bus.adr + (data_width // 8))
+                    )
                 )
             )
         )
 
-        self.sync += [
-            If(self.fifo.ins_in_valid,
-                self.ins_out.eq(0),
-                self.ins_out_valid.eq(0)
-            ).Else(
-                self.ins_out.eq(self.ins_in),
-                self.ins_out_valid.eq(self.ins_in_valid)
+        self.comb += [
+            self.fifo.din.eq(self.ins_in),
+            self.fifo.we.eq(self.ins_in_valid),
+            If(~self.fifo.readable | (self.fifo.dout[0:8] != id_no),
+                self.ins_out.eq(self.fifo.dout),
+                self.ins_out_valid.eq(self.fifo.readable),
+                self.fifo.re.eq(self.ins_out_valid)
             )
         ]
 
@@ -1173,18 +1168,12 @@ class Tpu(Module):
 			sw_data_in_valid=sw_data_out_valid)
 
         self.submodules.dram_if1 = DramIO(
+			bus,
             id_no=1,
             data_width=data_width,
             addr_width=addr_width,
             ins_width=ins_width,
             clk=self.clk,
-            axi_araddr=self.dram_araddr,
-            axi_arlen=self.dram_arlen,
-            axi_arvalid=self.dram_arvalid,
-            axi_arready=self.dram_arready,
-            axi_rdata=self.dram_rdata,
-            axi_rvalid=self.dram_rvalid,
-            axi_rready=self.dram_rready,
             ins_in=self.ins_inter[0],
             ins_in_valid=self.ins_valid_inter[0],
             ins_out=self.ins_inter[1],
