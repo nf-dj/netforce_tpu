@@ -1023,8 +1023,8 @@ class InsFifo(Module):
         ]
 
 class DramIO(Module):
-    def __init__(self, wishbone_bus, id_no=1, data_width=512, ins_width=64):
-        self.bus = wishbone_bus
+    def __init__(self, wb, id_no=1, data_width=512, ins_width=64):
+        self.wb = wb
 
         self.clk = ClockSignal()
         self.ins_in = Signal(ins_width)
@@ -1057,49 +1057,49 @@ class DramIO(Module):
                     self.OP_NOP: NextState("IDLE"),
                     self.OP_READ: [
                         NextState("READ"),
-                        NextValue(self.bus.adr, self.fifo.dout[16:48]),
+                        NextValue(self.wb.adr, self.fifo.dout[16:48]),
                         NextValue(self.burst_counter, self.fifo.dout[48:56]),
-                        NextValue(self.bus.cyc, 1),
-                        NextValue(self.bus.stb, 1),
-                        NextValue(self.bus.we, 0)
+                        NextValue(self.wb.cyc, 1),
+                        NextValue(self.wb.stb, 1),
+                        NextValue(self.wb.we, 0)
                     ],
                     self.OP_WRITE: [
                         NextState("WRITE"),
-                        NextValue(self.bus.adr, self.fifo.dout[16:48]),
+                        NextValue(self.wb.adr, self.fifo.dout[16:48]),
                         NextValue(self.burst_counter, self.fifo.dout[48:56]),
-                        NextValue(self.bus.cyc, 1),
-                        NextValue(self.bus.stb, 1),
-                        NextValue(self.bus.we, 1)
+                        NextValue(self.wb.cyc, 1),
+                        NextValue(self.wb.stb, 1),
+                        NextValue(self.wb.we, 1)
                     ]
                 }),
                 self.fifo.re.eq(1)
             )
         )
         self.fsm.act("READ",
-            If(self.bus.ack,
-                NextValue(self.sw_data_out, self.bus.dat_r),
+            If(self.wb.ack,
+                NextValue(self.sw_data_out, self.wb.dat_r),
                 NextValue(self.sw_data_out_valid, 1),
                 If(self.burst_counter == 0,
                     NextState("IDLE"),
-                    NextValue(self.bus.cyc, 0),
-                    NextValue(self.bus.stb, 0)
+                    NextValue(self.wb.cyc, 0),
+                    NextValue(self.wb.stb, 0)
                 ).Else(
                     NextValue(self.burst_counter, self.burst_counter - 1),
-                    NextValue(self.bus.adr, self.bus.adr + (data_width // 8))
+                    NextValue(self.wb.adr, self.wb.adr + (data_width // 8))
                 )
             )
         )
         self.fsm.act("WRITE",
             If(self.sw_data_in_valid,
-                NextValue(self.bus.dat_w, self.sw_data_in),
-                If(self.bus.ack,
+                NextValue(self.wb.dat_w, self.sw_data_in),
+                If(self.wb.ack,
                     If(self.burst_counter == 0,
                         NextState("IDLE"),
-                        NextValue(self.bus.cyc, 0),
-                        NextValue(self.bus.stb, 0)
+                        NextValue(self.wb.cyc, 0),
+                        NextValue(self.wb.stb, 0)
                     ).Else(
                         NextValue(self.burst_counter, self.burst_counter - 1),
-                        NextValue(self.bus.adr, self.bus.adr + (data_width // 8))
+                        NextValue(self.wb.adr, self.wb.adr + (data_width // 8))
                     )
                 )
             )
@@ -1118,7 +1118,7 @@ class DramIO(Module):
 # top
 
 class NF_TPU(Module):
-    def __init__(self, stream_sink=None, stream_source=None, input_width = 64, ins_width = 64, data_width = 512, addr_width = 32, num_tiles = 16):
+    def __init__(self, stream_width = 64, ins_width = 64, data_width = 512, addr_width = 32, num_tiles = 16):
         self.input_width = input_width
         self.ins_width = ins_width
         self.data_width = data_width
@@ -1126,8 +1126,9 @@ class NF_TPU(Module):
 
         self.clk = ClockSignal()
         self.reset = Signal()
-
-        self.bus = wishbone.Interface()
+        self.sink = stream.Endpoint([("data", stream_width)]) 
+        self.source = stream.Endpoint([("data", stream_width)])
+        self.wb = wishbone.Interface()
 
         self.input_sw_out_data = Signal(data_width)
         self.input_sw_out_data_valid = Signal()
@@ -1149,7 +1150,7 @@ class NF_TPU(Module):
             self.sw_in_data.eq(self.input_sw_out_data),
         ]
 
-        self.submodules.stream_io = StreamIO(id_no=0, sink=stream_sink, source=stream_source data_width=data_width, ins_width=ins_width, input_width=input_width)
+        self.submodules.stream_io = StreamIO(id_no=0, sink=self.sink, source=self.source data_width=data_width, ins_width=ins_width, input_width=input_width)
         self.comb += [
             self.stream_io.out_ins.eq(self.ins_inter[0]),
             self.stream_io.out_ins_valid.eq(self.ins_valid_inter[0]),
@@ -1159,7 +1160,7 @@ class NF_TPU(Module):
             self.stream_io.out_sw_data_valid.eq(self.stream_out_sw_data_valid),
         ]
 
-        self.submodules.dram_io = DramIO(bus, id_no=1, data_width=data_width, addr_width=addr_width, ins_width=ins_width)
+        self.submodules.dram_io = DramIO(wb, id_no=1, data_width=data_width, addr_width=addr_width, ins_width=ins_width)
         self.comb += [
             self.dram_io.ins_in.eq(self.ins_inter[0]),
             self.dram_io.ins_in_valid.eq(self.ins_valid_inter[0]),

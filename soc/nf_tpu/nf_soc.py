@@ -22,15 +22,13 @@ class NF_SoC(SoCCore):
         )
 
         self.tpu = NF_TPU(data_width=32)
-
         self.comb += [
-            self.uart.sink.valid.eq(self.tpu.sink.valid),
-            self.tpu.sink.data.eq(self.uart.sink.data),
-            self.uart.sink.ready.eq(self.tpu.sink.ready),
-
-            self.uart.source.data.eq(self.tpu.source.data),
-            self.uart.source.valid.eq(self.tpu.source.valid),
-            self.tpu.ready.eq(self.uart.source.ready)
+                self.tpu.sink.valid.eq(self.uart.sink.valid),
+                self.tpu.sink.data.eq(self.uart.sink.data),
+                self.tpu.sink.ready.eq(self.uart.sink.ready),
+                self.tpu.source.data.eq(self.uart.source.data),
+                self.tpu.source.valid.eq(self.uart.source.valid),
+                self.tpu.source.ready.eq(self.uart.source.ready),
         ]
 
         wb_sdram_port = self.sdram.crossbar.get_port()
