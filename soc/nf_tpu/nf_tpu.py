@@ -786,6 +786,7 @@ class Conv64To512(Module):
             )
         ]
 
+class Fifo512To64(Module):
     def __init__(self, fifo_depth=64):
         self.input_width = 512
         self.output_width = 64
@@ -1145,197 +1146,181 @@ class NF_TPU(Module):
 
         self.comb += [
             self.sw_in_data_valid.eq(self.input_sw_out_data_valid),
-            self.sw_in_data.eq(self.input_sw_out_data)
+            self.sw_in_data.eq(self.input_sw_out_data),
         ]
 
-        self.submodules.stream_io = StreamIO(
-            id_no=0,
-            sink=stream_sink,
-            source=stream_source
-            data_width=data_width,
-            ins_width=ins_width,
-            input_width=input_width,
-            ins_out=ins_inter[0],
-            ins_out_valid=ins_valid_inter[0],
-            sw_data_out=pcie_sw_data_out,
-            sw_data_out_valid=pcie_sw_data_out_valid,
-            sw_data_in=sw_data_out,
-            sw_data_in_valid=sw_data_out_valid)
+        self.submodules.stream_io = StreamIO(id_no=0, sink=stream_sink, source=stream_source data_width=data_width, ins_width=ins_width, input_width=input_width)
+        self.comb += [
+            self.stream_io.out_ins.eq(self.ins_inter[0]),
+            self.stream_io.out_ins_valid.eq(self.ins_valid_inter[0]),
+            self.stream_io.in_sw_data.eq(self.sw_out_data),
+            self.stream_io.in_sw_data_valid.eq(self.sw_out_data_valid)
+            self.stream_io.out_sw_data.eq(self.stream_out_sw_data),
+            self.stream_io.out_sw_data_valid.eq(self.stream_out_sw_data_valid),
+        ]
 
-        self.submodules.dram_io = DramIO(
-            bus,
-            id_no=1,
-            data_width=data_width,
-            addr_width=addr_width,
-            ins_width=ins_width,
-            clk=self.clk,
-            ins_in=self.ins_inter[0],
-            ins_in_valid=self.ins_valid_inter[0],
-            ins_out=self.ins_inter[1],
-            ins_out_valid=self.ins_valid_inter[1],
-            sw_data_out=self.dram_sw_data_out,
-            sw_data_out_valid=self.dram_sw_data_out_valid,
-            sw_data_in=self.sw_data_out,
-            sw_data_in_valid=self.sw_data_out_valid
-        )
+        self.submodules.dram_io = DramIO(bus, id_no=1, data_width=data_width, addr_width=addr_width, ins_width=ins_width)
+        self.comb += [
+            self.dram_io.ins_in.eq(self.ins_inter[0]),
+            self.dram_io.ins_in_valid.eq(self.ins_valid_inter[0]),
+            self.dram_io.in_sw_data.eq(self.sw_out_data),
+            self.dram_io.in_sw_data_valid.eq(self.sw_out_data_valid),
+            self.dram_io.out_ins.eq(self.ins_inter[1]),
+            self.dram_io.out_ins_valid.eq(self.ins_valid_inter[1]),
+            self.dram_io.out_sw_data.eq(self.dram_out_sw_data),
+            self.dram_io.out_sw_data_valid.eq(self.dram_out_sw_data_valid),
+        ]
 
-        self.submodules.sw_id1 = SwitchInsDec(
-            id_no=2,
-            clk=self.clk,
-            in_ins=self.ins_inter[0],
-            in_ins_valid=self.ins_valid_inter[0],
-            out_ins=self.ins_inter[1],
-            out_ins_valid=self.ins_valid_inter[1],
-            out_slice_ins=self.slice_ins[0],
-            out_slice_ins_valid=self.slice_ins_valid[0]
-        )
+        self.submodules.sw_id1 = SwitchInsDec(id_no=2)
+        self.comb += [
+            self.sw_id1.in_ins.eq(self.ins_inter[0]),
+            self.sw_id1.in_ins_valid.eq(self.ins_valid_inter[0]),
+            self.sw_id1.out_ins.eq(self.ins_inter[1]),
+            self.sw_id1.out_ins_valid.eq(self.ins_valid_inter[1]),
+            self.sw_id1.out_slice_ins.eq(self.slice_ins[0]),
+            self.sw_id1.out_slice_ins_valid.eq(self.slice_ins_valid[0]),
+        ]
 
-        self.submodules.sw_slice1 = SwitchSlice(
-            clk=self.clk,
-            in_stream=self.stream_inter_e[0],
-            in_stream_valid=self.stream_valid_inter_e[0],
-            out_stream=self.stream_inter_w[0],
-            out_stream_valid=self.stream_valid_inter_w[0],
-            in_data=self.sw_in_data,
-            in_data_valid=self.sw_in_data_valid,
-            out_data=self.sw_out_data,
-            out_data_valid=self.sw_out_data_valid,
-            in_ins=self.slice_ins[0],
-            in_ins_valid=self.slice_ins_valid[0]
-        )
+        self.submodules.sw_slice1 = SwitchSlice()
+        self.comb += [
+            self.sw_slice1.in_stream.eq(self.stream_inter_e[0]),
+            self.sw_slice1.in_stream_valid.eq(self.stream_valid_inter_e[0]),
+            self.sw_slice1.out_stream.eq(self.stream_inter_w[0]),
+            self.sw_slice1.out_stream_valid.eq(self.stream_valid_inter_w[0]),
+            self.sw_slice1.in_data.eq(self.sw_in_data),
+            self.sw_slice1.in_data_valid.eq(self.sw_in_data_valid),
+            self.sw_slice1.out_data.eq(self.sw_out_data),
+            self.sw_slice1.out_data_valid.eq(self.sw_out_data_valid),
+            self.sw_slice1.in_ins.eq(self.slice_ins[0]),
+            self.sw_slice1.in_ins_valid.eq(self.slice_ins_valid[0]),
+        ]
 
-        self.submodules.mem_id1 = MemInsDec(
-            id_no_w=3,
-            id_no_e=4,
-            clk=self.clk,
-            in_ins=self.ins_inter[2],
-            in_ins_valid=self.ins_valid_inter[2],
-            out_ins=self.ins_inter[3],
-            out_ins_valid=self.ins_valid_inter[3],
-            out_slice_ins_w=self.slice_ins[1],
-            out_slice_ins_valid_w=self.slice_ins_valid[1],
-            out_slice_ins_e=self.slice_ins[2],
-            out_slice_ins_valid_e=self.slice_ins_valid[2]
-        )
+        self.submodules.mem_id1 = MemInsDec(id_no_w=3, id_no_e=4)
+        self.comb += [
+            self.mem_id1.in_ins.eq(self.ins_inter[2]),
+            self.mem_id1.in_ins_valid.eq(self.ins_valid_inter[2]),
+            self.mem_id1.out_ins.eq(self.ins_inter[3]),
+            self.mem_id1.out_ins_valid.eq(self.ins_valid_inter[3]),
+            self.mem_id1.out_slice_ins_w.eq(self.slice_ins[1]),
+            self.mem_id1.out_slice_ins_valid_w.eq(self.slice_ins_valid[1]),
+            self.mem_id1.out_slice_ins_e.eq(self.slice_ins[2]),
+            self.mem_id1.out_slice_ins_valid_e.eq(self.slice_ins_valid[2]),
+        ]
 
-        self.submodules.mem_slice1 = MemSlice(
-            clk=self.clk,
-            in_stream_w=self.stream_inter_w[0],
-            in_stream_w_valid=self.stream_valid_inter_w[0],
-            out_stream_e=self.stream_inter_e[0],
-            out_stream_e_valid=self.stream_valid_inter_e[0],
-            out_stream_w=self.stream_inter_w[1],
-            out_stream_w_valid=self.stream_valid_inter_w[1],
-            in_stream_e=self.stream_inter_e[1],
-            in_stream_e_valid=self.stream_valid_inter_e[1],
-            in_ins_w=self.slice_ins[1],
-            in_ins_valid_w=self.slice_ins_valid[1],
-            in_ins_e=self.slice_ins[2],
-            in_ins_valid_e=self.slice_ins_valid[2]
-        )
+        self.submodules.mem_slice1 = MemSlice()
+        self.comb += [
+            self.mem_slice1.in_stream_w.eq(self.stream_inter_w[0]),
+            self.mem_slice1.in_stream_w_valid.eq(self.stream_valid_inter_w[0]),
+            self.mem_slice1.out_stream_e.eq(self.stream_inter_e[0]),
+            self.mem_slice1.out_stream_e_valid.eq(self.stream_valid_inter_e[0]),
+            self.mem_slice1.out_stream_w.eq(self.stream_inter_w[1]),
+            self.mem_slice1.out_stream_w_valid.eq(self.stream_valid_inter_w[1]),
+            self.mem_slice1.in_stream_e.eq(self.stream_inter_e[1]),
+            self.mem_slice1.in_stream_e_valid.eq(self.stream_valid_inter_e[1]),
+            self.mem_slice1.in_ins_w.eq(self.slice_ins[1]),
+            self.mem_slice1.in_ins_valid_w.eq(self.slice_ins_valid[1]),
+            self.mem_slice1.in_ins_e.eq(self.slice_ins[2]),
+            self.mem_slice1.in_ins_valid_e.eq(self.slice_ins_valid[2]),
+        ]
 
-        self.submodules.mem_id2 = MemInsDec(
-            id_no_w=5,
-            id_no_e=6,
-            clk=self.clk,
-            in_ins=self.ins_inter[3],
-            in_ins_valid=self.ins_valid_inter[3],
-            out_ins=self.ins_inter[4],
-            out_ins_valid=self.ins_valid_inter[4],
-            out_slice_ins_w=self.slice_ins[3],
-            out_slice_ins_valid_w=self.slice_ins_valid[3],
-            out_slice_ins_e=self.slice_ins[4],
-            out_slice_ins_valid_e=self.slice_ins_valid[4]
-        )
+        self.submodules.mem_id2 = MemInsDec(id_no_w=5, id_no_e=6)
+        self.comb += [
+            self.mem_id2.in_ins.eq(self.ins_inter[3]),
+            self.mem_id2.in_ins_valid.eq(self.ins_valid_inter[3]),
+            self.mem_id2.out_ins.eq(self.ins_inter[4]),
+            self.mem_id2.out_ins_valid.eq(self.ins_valid_inter[4]),
+            self.mem_id2.out_slice_ins_w.eq(self.slice_ins[3]),
+            self.mem_id2.out_slice_ins_valid_w.eq(self.slice_ins_valid[3]),
+            self.mem_id2.out_slice_ins_e.eq(self.slice_ins[4]),
+            self.mem_id2.out_slice_ins_valid_e.eq(self.slice_ins_valid[4])
+        ]
 
-        self.submodules.mem_slice2 = MemSlice(
-            clk=self.clk,
-            in_stream_w=self.stream_inter_w[1],
-            in_stream_w_valid=self.stream_valid_inter_w[1],
-            out_stream_e=self.stream_inter_e[1],
-            out_stream_e_valid=self.stream_valid_inter_e[1],
-            out_stream_w=self.stream_inter_w[2],
-            out_stream_w_valid=self.stream_valid_inter_w[2],
-            in_stream_e=self.stream_inter_e[2],
-            in_stream_e_valid=self.stream_valid_inter_e[2],
-            in_ins_w=self.slice_ins[3],
-            in_ins_valid_w=self.slice_ins_valid[3],
-            in_ins_e=self.slice_ins[4],
-            in_ins_valid_e=self.slice_ins_valid[4]
-        )
+        self.submodules.mem_slice2 = MemSlice()
+        self.comb += [
+            self.mem_slice2.in_stream_w.eq(self.stream_inter_w[1]),
+            self.mem_slice2.in_stream_w_valid.eq(self.stream_valid_inter_w[1]),
+            self.mem_slice2.out_stream_e.eq(self.stream_inter_e[1]),
+            self.mem_slice2.out_stream_e_valid.eq(self.stream_valid_inter_e[1]),
+            self.mem_slice2.out_stream_w.eq(self.stream_inter_w[2]),
+            self.mem_slice2.out_stream_w_valid.eq(self.stream_valid_inter_w[2]),
+            self.mem_slice2.in_stream_e.eq(self.stream_inter_e[2]),
+            self.mem_slice2.in_stream_e_valid.eq(self.stream_valid_inter_e[2]),
+            self.mem_slice2.in_ins_w.eq(self.slice_ins[3]),
+            self.mem_slice2.in_ins_valid_w.eq(self.slice_ins_valid[3]),
+            self.mem_slice2.in_ins_e.eq(self.slice_ins[4]),
+            self.mem_slice2.in_ins_valid_e.eq(self.slice_ins_valid[4])
+        ]
 
-        self.submodules.vec_id1 = VecInsDec(
-            id_no=7,
-            clk=self.clk,
-            in_ins=self.ins_inter[4],
-            in_ins_valid=self.ins_valid_inter[4],
-            out_ins=self.ins_inter[5],
-            out_ins_valid=self.ins_valid_inter[5],
-            out_slice_ins=self.slice_ins[5],
-            out_slice_ins_valid=self.slice_ins_valid[5]
-        )
+        self.submodules.vec_id1 = VecInsDec(id_no=7)
+        self.comb += [
+            self.vec_id1.in_ins.eq(self.ins_inter[4]),
+            self.vec_id1.in_ins_valid.eq(self.ins_valid_inter[4]),
+            self.vec_id1.out_ins.eq(self.ins_inter[5]),
+            self.vec_id1.out_ins_valid.eq(self.ins_valid_inter[5]),
+            self.vec_id1.out_slice_ins.eq(self.slice_ins[5]),
+            self.vec_id1.out_slice_ins_valid.eq(self.slice_ins_valid[5])
+        ]
 
-        self.submodules.vec_slice1 = VecSlice(
-            clk=self.clk,
-            in_stream_w=self.stream_inter_w[2],
-            in_stream_w_valid=self.stream_valid_inter_w[2],
-            out_stream_e=self.stream_inter_e[2],
-            out_stream_e_valid=self.stream_valid_inter_e[2],
-            out_stream_w=self.stream_inter_w[3],
-            out_stream_w_valid=self.stream_valid_inter_w[3],
-            in_stream_e=self.stream_inter_e[3],
-            in_stream_e_valid=self.stream_valid_inter_e[3],
-            in_ins=self.slice_ins[5],
-            in_ins_valid=self.slice_ins_valid[5]
-        )
+        self.submodules.vec_slice1 = VecSlice()
+        self.comb += [
+            self.vec_slice1.in_stream_w.eq(self.stream_inter_w[2]),
+            self.vec_slice1.in_stream_w_valid.eq(self.stream_valid_inter_w[2]),
+            self.vec_slice1.out_stream_e.eq(self.stream_inter_e[2]),
+            self.vec_slice1.out_stream_e_valid.eq(self.stream_valid_inter_e[2]),
+            self.vec_slice1.out_stream_w.eq(self.stream_inter_w[3]),
+            self.vec_slice1.out_stream_w_valid.eq(self.stream_valid_inter_w[3]),
+            self.vec_slice1.in_stream_e.eq(self.stream_inter_e[3]),
+            self.vec_slice1.in_stream_e_valid.eq(self.stream_valid_inter_e[3]),
+            self.vec_slice1.in_ins.eq(self.slice_ins[5]),
+            self.vec_slice1.in_ins_valid.eq(self.slice_ins_valid[5]),
+        ]
 
-        self.submodules.dot_id1 = DotInsDec(
-            id_no=8,
-            clk=self.clk,
-            in_ins=self.ins_inter[5],
-            in_ins_valid=self.ins_valid_inter[5],
-            out_ins=self.ins_inter[6],
-            out_ins_valid=self.ins_valid_inter[6],
-            out_slice_ins=self.slice_ins[6],
-            out_slice_ins_valid=self.slice_ins_valid[6]
-        )
+        self.submodules.dot_id1 = DotInsDec(id_no=8)
+        self.comb += [
+            self.dot_id1.in_ins.eq(self.ins_inter[5]),
+            self.dot_id1.in_ins_valid.eq(self.ins_valid_inter[5]),
+            self.dot_id1.out_ins.eq(self.ins_inter[6]),
+            self.dot_id1.out_ins_valid.eq(self.ins_valid_inter[6]),
+            self.dot_id1.out_slice_ins.eq(self.slice_ins[6]),
+            self.dot_id1.out_slice_ins_valid.eq(self.slice_ins_valid[6])
+        ]
 
-        self.submodules.dot_slice1 = DotSlice(
-            clk=self.clk,
-            in_stream_w=self.stream_inter_w[3],
-            in_stream_w_valid=self.stream_valid_inter_w[3],
-            out_stream_e=self.stream_inter_e[3],
-            out_stream_e_valid=self.stream_valid_inter_e[3],
-            out_stream_w=self.stream_inter_w[4],
-            out_stream_w_valid=self.stream_valid_inter_w[4],
-            in_stream_e=self.stream_inter_e[4],
-            in_stream_e_valid=self.stream_valid_inter_e[4],
-            in_ins=self.slice_ins[6],
-            in_ins_valid=self.slice_ins_valid[6]
-        )
+        self.submodules.dot_slice1 = DotSlice()
+        self.comb += [
+            self.dot_slice1.in_stream_w.eq(self.stream_inter_w[3]),
+            self.dot_slice1.in_stream_w_valid.eq(self.stream_valid_inter_w[3]),
+            self.dot_slice1.out_stream_e.eq(self.stream_inter_e[3]),
+            self.dot_slice1.out_stream_e_valid.eq(self.stream_valid_inter_e[3]),
+            self.dot_slice1.out_stream_w.eq(self.stream_inter_w[4]),
+            self.dot_slice1.out_stream_w_valid.eq(self.stream_valid_inter_w[4]),
+            self.dot_slice1.in_stream_e.eq(self.stream_inter_e[4]),
+            self.dot_slice1.in_stream_e_valid.eq(self.stream_valid_inter_e[4]),
+            self.dot_slice1.in_ins.eq(self.slice_ins[6]),
+            self.dot_slice1.in_ins_valid.eq(self.slice_ins_valid[6]),
+        ]
 
-        self.submodules.dot_id2 = DotInsDec(
-            id_no=9,
-            clk=self.clk,
-            in_ins=self.ins_inter[6],
-            in_ins_valid=self.ins_valid_inter[6],
-            out_ins=self.ins_inter[7],
-            out_ins_valid=self.ins_valid_inter[7],
-            out_slice_ins=self.slice_ins[7],
-            out_slice_ins_valid=self.slice_ins_valid[7]
-        )
+        self.submodules.dot_id2 = DotInsDec(id_no=9)
+        self.comb += [
+            self.dot_id2.in_ins.eq(self.ins_inter[6]),
+            self.dot_id2.in_ins_valid.eq(self.ins_valid_inter[6]),
+            self.dot_id2.out_ins.eq(self.ins_inter[7]),
+            self.dot_id2.out_ins_valid.eq(self.ins_valid_inter[7]),
+            self.dot_id2.out_slice_ins.eq(self.slice_ins[7]),
+            self.dot_id2.out_slice_ins_valid.eq(self.slice_ins_valid[7])
+        ]
 
-        self.submodules.dot_slice2 = DotSlice(
-            clk=self.clk,
-            in_stream_w=self.stream_inter_w[4],
-            in_stream_w_valid=self.stream_valid_inter_w[4],
-            out_stream_e=self.stream_inter_e[4],
-            out_stream_e_valid=self.stream_valid_inter_e[4],
-            in_stream_e=Signal(data_width),  # Unused input
-            in_stream_e_valid=Constant(0),
-            in_ins=self.slice_ins[7],
-            in_ins_valid=self.slice_ins_valid[7]
-        )
+        self.submodules.dot_slice2 = DotSlice()
+        self.comb += [
+            self.dot_slice2.in_stream_w.eq(self.stream_inter_w[4]),
+            self.dot_slice2.in_stream_w_valid.eq(self.stream_valid_inter_w[4]),
+            self.dot_slice2.out_stream_e.eq(self.stream_inter_e[4]),
+            self.dot_slice2.out_stream_e_valid.eq(self.stream_valid_inter_e[4]),
+            self.dot_slice2.in_stream_e.eq(self.stream_inter_e[5]),
+            self.dot_slice2.in_stream_e_valid.eq(self.stream_valid_inter_e[5]),
+            self.dot_slice2.in_ins.eq(self.slice_ins[7]),
+            self.dot_slice2.in_ins_valid.eq(self.slice_ins_valid[7]),
+        ]
+
 
 if __name__ == "__main__":
     #top = MemTile()
