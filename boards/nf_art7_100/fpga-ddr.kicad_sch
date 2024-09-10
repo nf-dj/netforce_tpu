@@ -1448,6 +1448,11 @@
     (uuid d0ec7f65-2b29-47b3-8f8e-846b900bc555)
   )
 
+  (text "TODO: connect vref" (at 125.603 46.101 0)
+    (effects (font (size 1.27 1.27)) (justify left bottom))
+    (uuid 41deb600-20ae-4ab1-b98b-ca9753c579e3)
+  )
+
   (global_label "CK-" (shape input) (at 120.777 126.619 0) (fields_autoplaced)
     (effects (font (size 1.27 1.27)) (justify left))
     (uuid 0182675d-c2bd-4d14-a1d1-8444b4930a68)
