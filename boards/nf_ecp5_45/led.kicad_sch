@@ -846,7 +846,7 @@
     (uuid f60871b7-7e56-4907-8bd2-a2961a462022)
   )
 
-  (text "led parts 0603 (2024-09-04):\nred: C5179624\ngreen: C22371297\nblue: C5355421"
+  (text "led parts 0603 (2024-09-04):\nred: C5179624\ngreen: C965804\nblue: C5355421"
     (at 71.501 62.103 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 7c0f8cf5-ea42-49c3-9d3c-1965042c1492)
@@ -974,7 +974,7 @@
     (property "Reference" "D2" (at 80.645 74.93 0)
       (effects (font (size 1.27 1.27)))
     )
-    (property "Value" "LED_G_0603_LG_L29K-G2J1-24-Z" (at 61.595 90.17 0)
+    (property "Value" "LED_R_0603_LG_L29K-G2J1-24-Z" (at 61.595 90.17 0)
       (effects (font (size 1.27 1.27) (thickness 0.15)) (justify left bottom) hide)
     )
     (property "Footprint" "LED_SMD:LED_0603_1608Metric" (at 61.595 92.71 0)
@@ -1083,7 +1083,7 @@
     (property "License" "Apache-2.0" (at 156.845 73.66 0)
       (effects (font (size 1.27 1.27) (thickness 0.15)) (justify left bottom) hide)
     )
-    (property "LCSC" "C22371297" (at 179.705 50.8 0)
+    (property "LCSC" "C965804" (at 179.705 50.8 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (pin "1" (uuid 083c3a87-687f-4a46-aa53-ac78a7142d7e))
@@ -1150,7 +1150,7 @@
     (property "Reference" "D1" (at 179.07 104.14 0)
       (effects (font (size 1.27 1.27)))
     )
-    (property "Value" "LED_G_0603_LG_L29K-G2J1-24-Z" (at 179.07 106.045 0)
+    (property "Value" "LED_B_0603_LG_L29K-G2J1-24-Z" (at 179.07 106.045 0)
       (effects (font (size 1.27 1.27) (thickness 0.15)) hide)
     )
     (property "Footprint" "LED_SMD:LED_0603_1608Metric" (at 160.02 121.285 0)
