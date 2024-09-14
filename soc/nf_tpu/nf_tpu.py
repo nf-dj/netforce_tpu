@@ -1162,8 +1162,8 @@ class NF_TPU(Module):
 
         self.submodules.dram_io = DramIO(wb, id_no=1, data_width=data_width, addr_width=addr_width, ins_width=ins_width)
         self.comb += [
-            self.dram_io.ins_in.eq(self.ins_inter[0]),
-            self.dram_io.ins_in_valid.eq(self.ins_valid_inter[0]),
+            self.dram_io.in_ins.eq(self.ins_inter[0]),
+            self.dram_io.in_ins_valid.eq(self.ins_valid_inter[0]),
             self.dram_io.in_sw_data.eq(self.sw_out_data),
             self.dram_io.in_sw_data_valid.eq(self.sw_out_data_valid),
             self.dram_io.out_ins.eq(self.ins_inter[1]),
