@@ -335,7 +335,7 @@ class SwitchInsDec(Module):
 class DotUnit(Module):
     def __init__(self,fsm):
         self.clk = ClockSignal()
-		self.fsm = fsm
+        self.fsm = fsm
 
         self.in_stream_w = Signal(8)
         self.in_stream_w_valid = Signal()
@@ -387,7 +387,7 @@ class DotTile(Module):
     def __init__(self, tile_no=0, ins_width=64, lane_width=32):
         self.clk = ClockSignal()
         
-        self.in_stream__w = Signal(lane_width)
+        self.in_stream_w = Signal(lane_width)
         self.in_stream_w_valid = Signal()
         self.out_stream_e = Signal(lane_width)
         self.out_stream_e_valid = Signal()
@@ -416,10 +416,10 @@ class DotTile(Module):
                 dot.in_stream_e.eq(self.in_stream_e[i*8:i*8+8]),
                 dot.in_stream_e_valid.eq(self.in_stream_e_valid),
                 dot.in_weight.eq(self.weight_inter[i-1] if i > 0 else 0),  # FIXME: Handle in_weight for i==0
-				dot.out_weight.eq(self.weight_inter[i]),
+                dot.out_weight.eq(self.weight_inter[i]),
             ]
 
-		def update_state():
+        def update_state():
             return If(self.in_ins_valid & (self.in_ins[15:8] == tile_no),
                 Case(self.in_ins[23:16], {
                     self.OP_PASS: NextState("PASS"),
@@ -436,25 +436,25 @@ class DotTile(Module):
         self.fsm.act("PASS",
             NextValue(self.out_stream_w_valid, self.in_stream_w_valid),
             NextValue(self.out_stream_e_valid, self.in_stream_e_valid),
-			update_state()
+            update_state()
         )
         self.fsm.act("LOAD_WEIGHT",
             If(self.in_stream_w_valid,
                 NextState("PASS")
             ),
             NextValue(self.out_stream_e_valid, self.in_stream_e_valid),
-			update_state()
+            update_state()
         )
         self.fsm.act("MUL",
             NextValue(self.out_stream_w_valid, self.in_stream_w_valid),
             NextValue(self.out_stream_e_valid, self.in_stream_e_valid),
-			update_state()
+            update_state()
         )
         self.fsm.act("READ_SUM",
             NextValue(self.out_stream_w_valid, self.in_stream_w_valid),
             NextValue(self.out_stream_e_valid, 1),
             NextState("PASS"),
-			update_state()
+            update_state()
         )
 
 class DotSlice(Module):
@@ -538,9 +538,9 @@ class DotInsDec(Module):
 # vector compute
 
 class VecUnit(Module):
-    def __init__(self fsm):
+    def __init__(self, fsm):
         self.clk = ClockSignal()
-		self.fsm = fsm
+        self.fsm = fsm
         self.in_stream_w = Signal(8)
         self.in_stream_valid_w = Signal()
         self.in_stream_e = Signal(8)
@@ -554,7 +554,6 @@ class VecUnit(Module):
         self.const_b = Signal(8)
         self.sum = Signal(16)
 
-        self.submodules.fsm = FSM(reset_state="PASS")
         self.fsm.act("PASS",
             NextValue(self.out_stream_w, self.in_stream_w),
             NextValue(self.out_stream_e, self.in_stream_e),
