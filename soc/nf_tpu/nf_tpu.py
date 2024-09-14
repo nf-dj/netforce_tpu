@@ -760,29 +760,29 @@ class Conv64To512(Module):
     def __init__(self):
         self.clk = ClockSignal()
         
-        self.data_in = Signal(64)
-        self.data_in_valid = Signal()
+        self.in_data = Signal(64)
+        self.in_data_valid = Signal()
         
-        self.data_out = Signal(512)
-        self.data_out_valid = Signal()
+        self.out_data = Signal(512)
+        self.out_data_valid = Signal()
 
         self.buffer = Array([Signal(64) for _ in range(8)])
         self.count = Signal(3)
 
         self.sync += [
-            If(self.data_in_valid,
-                self.buffer[self.count].eq(self.data_in),
+            If(self.in_data_valid,
+                self.buffer[self.count].eq(self.in_data),
                 If(self.count == 7,
-                    self.data_out.eq(Cat(self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3],
+                    self.out_data.eq(Cat(self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3],
                                          self.buffer[4], self.buffer[5], self.buffer[6], self.buffer[7])),
-                    self.data_out_valid.eq(1),
+                    self.out_data_valid.eq(1),
                     self.count.eq(0)
                 ).Else(
                     self.count.eq(self.count + 1),
-                    self.data_out_valid.eq(0)
+                    self.out_data_valid.eq(0)
                 )
             ).Else(
-                self.data_out_valid.eq(0)
+                self.out_data_valid.eq(0)
             )
         ]
 
@@ -793,12 +793,12 @@ class Fifo512To64(Module):
         self.ptr_bits = log2_int(fifo_depth)
 
         self.clk = ClockSignal()
-        self.data_in = Signal(self.input_width)
+        self.in_data = Signal(self.input_width)
         self.wr_en = Signal()
         self.rd_en = Signal()
 
-        self.data_out = Signal(self.output_width)
-        self.data_out_valid = Signal()
+        self.out_data = Signal(self.output_width)
+        self.out_data_valid = Signal()
         self.fifo_full = Signal()
         self.fifo_empty = Signal()
 
@@ -824,7 +824,7 @@ class Fifo512To64(Module):
         self.sync += [
             If(self.wr_en & ~self.fifo_full,
                self.wr_port.adr.eq(self.wr_ptr),
-               self.wr_port.dat_w.eq(self.data_in),
+               self.wr_port.dat_w.eq(self.in_data),
                self.wr_port.we.eq(1),
                self.wr_ptr.eq(self.wr_ptr + 1)
             ).Else(
@@ -835,16 +835,16 @@ class Fifo512To64(Module):
         self.sync += [
             If(self.rd_en & ~self.fifo_empty,
                self.rd_port.adr.eq(self.rd_ptr),
-               self.data_out.eq(self.rd_port.dat_r[self.rd_shift * self.output_width:
+               self.out_data.eq(self.rd_port.dat_r[self.rd_shift * self.output_width:
                                                    (self.rd_shift + 1) * self.output_width]),
                self.rd_shift.eq(self.rd_shift + 1),
-               self.data_out_valid.eq(1),
+               self.out_data_valid.eq(1),
                If(self.rd_shift == (self.input_width // self.output_width - 1),
                   self.rd_shift.eq(0),
                   self.rd_ptr.eq(self.rd_ptr + 1)
                )
             ).Else(
-                self.data_out_valid.eq(0)
+                self.out_data_valid.eq(0)
             )
         ]
 
@@ -853,19 +853,19 @@ class StreamIO(Module):
         self.sink = sink
         self.source = source
 
-        self.sw_data_in = Signal(data_width)
-        self.sw_data_in_valid = Signal()
-        self.ins_out = Signal(ins_width)
-        self.ins_out_valid = Signal()
-        self.sw_data_out = Signal(data_width)
-        self.sw_data_out_valid = Signal()
+        self.in_sw_data = Signal(data_width)
+        self.in_sw_data_valid = Signal()
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
+        self.out_sw_data = Signal(data_width)
+        self.out_sw_data_valid = Signal()
 
         self.rx_state = Signal(2)
         self.rx_len = Signal(16)
         self.tx_state = Signal(2)
         self.tx_len = Signal(16)
-        self.rx_conv_data_in = Signal(input_width)
-        self.rx_conv_data_in_valid = Signal()
+        self.rx_conv_in_data = Signal(input_width)
+        self.rx_conv_in_data_valid = Signal()
 
         self.RX_STATE_INS = 0
         self.RX_STATE_DATA = 1
@@ -882,21 +882,21 @@ class StreamIO(Module):
         self.comb += [
             self.sink.ready.eq((self.rx_state == self.RX_STATE_INS) | (self.rx_state == self.RX_STATE_DATA)),
             self.tx_fifo.clk.eq(ClockSignal()),
-            self.tx_fifo.data_in.eq(self.sw_data_in),
-            self.tx_fifo.wr_en.eq(self.sw_data_in_valid),
-            self.source.data.eq(self.tx_fifo.data_out),
-            self.source.valid.eq(self.tx_fifo.data_out_valid),
+            self.tx_fifo.in_data.eq(self.in_sw_data),
+            self.tx_fifo.wr_en.eq(self.in_sw_data_valid),
+            self.source.data.eq(self.tx_fifo.out_data),
+            self.source.valid.eq(self.tx_fifo.out_data_valid),
             self.tx_fifo.rd_en.eq(self.source.ready),
             self.rx_conv.clk.eq(ClockSignal()),
-            self.rx_conv.data_in.eq(self.rx_conv_data_in),
-            self.rx_conv.data_in_valid.eq(self.rx_conv_data_in_valid),
-            self.sw_data_out.eq(self.rx_conv.data_out),
-            self.sw_data_out_valid.eq(self.rx_conv.data_out_valid)
+            self.rx_conv.in_data.eq(self.rx_conv_in_data),
+            self.rx_conv.in_data_valid.eq(self.rx_conv_in_data_valid),
+            self.out_sw_data.eq(self.rx_conv.out_data),
+            self.out_sw_data_valid.eq(self.rx_conv.out_data_valid)
         ]
 
         self.submodules.fsm = FSM(reset_state="RX_INS")
         self.fsm.act("RX_INS",
-            NextValue(self.rx_conv_data_in_valid, 0),
+            NextValue(self.rx_conv_in_data_valid, 0),
             If(self.sink.valid,
                 If(self.sink.data[0:8] == 0,
                     Case(self.sink.data[8:16], {
@@ -913,22 +913,22 @@ class StreamIO(Module):
                             NextValue(self.rx_len, self.sink.data[16:32])
                         ]
                     }),
-                    NextValue(self.ins_out, 0),
-                    NextValue(self.ins_out_valid, 0)
+                    NextValue(self.out_ins, 0),
+                    NextValue(self.out_ins_valid, 0)
                 ).Else(
-                    NextValue(self.ins_out, self.sink.data),
-                    NextValue(self.ins_out_valid, 1)
+                    NextValue(self.out_ins, self.sink.data),
+                    NextValue(self.out_ins_valid, 1)
                 ),
                 self.sink.ready.eq(1)
             ).Else(
-                NextValue(self.ins_out, 0),
-                NextValue(self.ins_out_valid, 0)
+                NextValue(self.out_ins, 0),
+                NextValue(self.out_ins_valid, 0)
             )
         )
         self.fsm.act("RX_DATA",
             If(self.sink.valid,
-                NextValue(self.rx_conv_data_in, self.sink.data),
-                NextValue(self.rx_conv_data_in_valid, 1),
+                NextValue(self.rx_conv_in_data, self.sink.data),
+                NextValue(self.rx_conv_in_data_valid, 1),
                 If(self.rx_len == 0,
                     NextState("RX_INS")
                 ).Else(
@@ -936,7 +936,7 @@ class StreamIO(Module):
                 ),
                 self.sink.ready.eq(1)
             ).Else(
-                NextValue(self.rx_conv_data_in_valid, 0)
+                NextValue(self.rx_conv_in_data_valid, 0)
             )
         )
         self.fsm.act("RX_NOP",
@@ -970,12 +970,12 @@ class InsFifo(Module):
         self.log_depth = log2_int(depth)
 
         self.clk = ClockSignal()
-        self.ins_in = Signal(ins_width)
-        self.ins_in_valid = Signal()
-        self.ins_out_ready = Signal()
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
+        self.out_ins_ready = Signal()
 
-        self.ins_out = Signal(ins_width)
-        self.ins_out_valid = Signal()
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
 
         self.fifo = Memory(ins_width, depth)
         self.specials += self.fifo
@@ -998,9 +998,9 @@ class InsFifo(Module):
         ]
 
         self.sync += [
-            If(~self.fifo_full & self.ins_in_valid,
+            If(~self.fifo_full & self.in_ins_valid,
                self.write_port.adr.eq(self.write_ptr),
-               self.write_port.dat_w.eq(self.ins_in),
+               self.write_port.dat_w.eq(self.in_ins),
                self.write_port.we.eq(1),
                self.write_ptr.eq(self.write_ptr + 1)
             ).Else(
@@ -1009,15 +1009,15 @@ class InsFifo(Module):
         ]
 
         self.sync += [
-            If(self.ins_out_ready,
+            If(self.out_ins_ready,
                If(~self.fifo_empty,
                   self.read_port.adr.eq(self.read_ptr),
-                  self.ins_out.eq(self.read_port.dat_r),
+                  self.out_ins.eq(self.read_port.dat_r),
                   self.read_ptr.eq(self.read_ptr + 1),
-                  self.ins_out_valid.eq(1)
+                  self.out_ins_valid.eq(1)
                ).Else(
-                  self.ins_out_valid.eq(0),
-                  self.ins_out.eq(0)
+                  self.out_ins_valid.eq(0),
+                  self.out_ins.eq(0)
                )
             )
         ]
@@ -1027,16 +1027,15 @@ class DramIO(Module):
         self.wb = wb
 
         self.clk = ClockSignal()
-        self.ins_in = Signal(ins_width)
-        self.ins_in_valid = Signal()
-        self.ins_out = Signal(ins_width)
-        self.ins_out_valid = Signal()
-        self.sw_data_out = Signal(data_width)
-        self.sw_data_out_valid = Signal()
-        self.sw_data_in = Signal(data_width)
-        self.sw_data_in_valid = Signal()
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
+        self.out_ins = Signal(ins_width)
+        self.out_ins_valid = Signal()
+        self.out_sw_data = Signal(data_width)
+        self.out_sw_data_valid = Signal()
+        self.in_sw_data = Signal(data_width)
+        self.in_sw_data_valid = Signal()
 
-        self.state = Signal(2)
         self.burst_counter = Signal(8)
 
         self.STATE_IDLE = 0
@@ -1050,8 +1049,8 @@ class DramIO(Module):
 
         self.submodules.fsm = FSM(reset_state="IDLE")
         self.fsm.act("IDLE",
-            NextValue(self.ins_out_valid, 0),
-            NextValue(self.sw_data_out_valid, 0),
+            NextValue(self.out_ins_valid, 0),
+            NextValue(self.out_sw_data_valid, 0),
             If(self.fifo.readable & (self.fifo.dout[0:8] == id_no),
                 Case(self.fifo.dout[8:16], {
                     self.OP_NOP: NextState("IDLE"),
@@ -1077,8 +1076,8 @@ class DramIO(Module):
         )
         self.fsm.act("READ",
             If(self.wb.ack,
-                NextValue(self.sw_data_out, self.wb.dat_r),
-                NextValue(self.sw_data_out_valid, 1),
+                NextValue(self.out_sw_data, self.wb.dat_r),
+                NextValue(self.out_sw_data_valid, 1),
                 If(self.burst_counter == 0,
                     NextState("IDLE"),
                     NextValue(self.wb.cyc, 0),
@@ -1090,8 +1089,8 @@ class DramIO(Module):
             )
         )
         self.fsm.act("WRITE",
-            If(self.sw_data_in_valid,
-                NextValue(self.wb.dat_w, self.sw_data_in),
+            If(self.in_sw_data_valid,
+                NextValue(self.wb.dat_w, self.in_sw_data),
                 If(self.wb.ack,
                     If(self.burst_counter == 0,
                         NextState("IDLE"),
@@ -1106,12 +1105,12 @@ class DramIO(Module):
         )
 
         self.comb += [
-            self.fifo.din.eq(self.ins_in),
-            self.fifo.we.eq(self.ins_in_valid),
+            self.fifo.din.eq(self.in_ins),
+            self.fifo.we.eq(self.in_ins_valid),
             If(~self.fifo.readable | (self.fifo.dout[0:8] != id_no),
-                self.ins_out.eq(self.fifo.dout),
-                self.ins_out_valid.eq(self.fifo.readable),
-                self.fifo.re.eq(self.ins_out_valid)
+                self.out_ins.eq(self.fifo.dout),
+                self.out_ins_valid.eq(self.fifo.readable),
+                self.fifo.re.eq(self.out_ins_valid)
             )
         ]
 
