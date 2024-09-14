@@ -29,7 +29,6 @@ class MemTile(Module):
 
         self.addr = Signal(16)
         self.len = Signal(16)
-        self.state = Signal(2)
 
         self.STATE_PASS = 0
         self.STATE_READ = 1
@@ -334,8 +333,9 @@ class SwitchInsDec(Module):
 # dot product compute
 
 class DotUnit(Module):
-    def __init__(self):
+    def __init__(self,fsm):
         self.clk = ClockSignal()
+		self.fsm = fsm
 
         self.in_stream_w = Signal(8)
         self.in_stream_w_valid = Signal()
@@ -358,12 +358,10 @@ class DotUnit(Module):
             If(self.in_stream_e_valid,
                 self.out_stream_e.eq(self.in_stream_e)
             ),
-            NextState("PASS")
         )
         self.fsm.act("LOAD_WEIGHT",
             If(self.in_stream_w_valid,
                 NextValue(self.weight, self.in_stream_w),
-                NextState("PASS")
             ),
             If(self.in_stream_e_valid,
                 self.out_stream_e.eq(self.in_stream_e)
@@ -377,7 +375,6 @@ class DotUnit(Module):
             If(self.in_stream_e_valid,
                 self.out_stream_e.eq(self.in_stream_e)
             ),
-            NextState("MUL")
         )
         self.fsm.act("READ_SUM",
             self.out_stream_e.eq(self.sum),
@@ -389,93 +386,77 @@ class DotUnit(Module):
 
 class DotTile(Module):
     def __init__(self, tile_no=0, ins_width=64, lane_width=32):
-        self.tile_no = tile_no
-        self.ins_width = ins_width
-        self.lane_width = lane_width
-
         self.clk = ClockSignal()
-        self.in_stream_w = Signal(lane_width)
+        
+        self.in_stream__w = Signal(lane_width)
         self.in_stream_w_valid = Signal()
-        self.in_stream_e = Signal(lane_width)
-        self.in_stream_e_valid = Signal()
-        self.in_ins = Signal(ins_width)
-        self.in_ins_valid = Signal()
-
         self.out_stream_e = Signal(lane_width)
         self.out_stream_e_valid = Signal()
         self.out_stream_w = Signal(lane_width)
         self.out_stream_w_valid = Signal()
+        self.in_stream_e = Signal(lane_width)
+        self.in_stream_e_valid = Signal()
+        
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
         self.out_ins = Signal(ins_width)
         self.out_ins_valid = Signal()
 
-        self.state = Signal(2, reset=0)  # STATE_PASS
+        self.state = Signal(2)
         self.weight_inter = Array([Signal(8) for _ in range(4)])
-        self.in_weight = Signal(8)  # Added this signal as it was missing in the original
 
-        self.STATE_PASS = 0
-        self.STATE_LOAD_WEIGHT = 1
-        self.STATE_MUL = 2
-        self.STATE_READ_SUM = 3
-        self.OP_PASS = 0
-        self.OP_LOAD_WEIGHT = 1
-        self.OP_MUL = 2
-        self.OP_READ_SUM = 3
-
-        self.dot_units = []
-        for i in range(4):
-            unit = DotUnit()
-            self.dot_units.append(unit)
-            setattr(self.submodules, f"dot_unit_{i}", unit)
-
+        self.submodules.dots = [DotUnit(fsm = self.fsm) for _ in range(4)]
+        for i, dot in enumerate(self.dots):
             self.comb += [
-                #unit.state.eq(self.state),
-                unit.in_stream_w.eq(self.in_stream_w[i*8:i*8+8]),
-                unit.in_stream_w_valid.eq(self.in_stream_w_valid),
-                self.out_stream_e[i*8:i*8+8].eq(unit.out_stream_e),
-                self.out_stream_w[i*8:i*8+8].eq(unit.out_stream_w),
-                unit.in_stream_e.eq(self.in_stream_e[i*8:i*8+8]),
-                unit.in_stream_e_valid.eq(self.in_stream_e_valid),
-                unit.in_weight.eq(self.in_weight if i == 0 else self.weight_inter[i-1]),
-                self.weight_inter[i].eq(unit.out_weight)
+                dot.in_stream_w.eq(self.in_stream_w[i*8:i*8+8]),
+                dot.in_stream_w_valid.eq(self.in_stream_w_valid),
+                dot.out_stream_e=self.out_stream_e[i*8:i*8+8],
+                dot.out_stream_w=self.out_stream_w[i*8:i*8+8],
+                dot.in_stream_e.eq(self.in_stream_e[i*8:i*8+8]),
+                dot.in_stream_e_valid.eq(self.in_stream_e_valid),
+                dot.in_weight.eq(self.weight_inter[i-1] if i > 0 else 0),  # FIXME: Handle in_weight for i==0
+				dot.out_weight.eq(self.weight_inter[i]),
             ]
 
-        self.fsm = FSM(reset_state="PASS")
-        self.submodules += self.fsm
+        self.submodules.fsm = FSM(reset_state="PASS")
+
+		def update_state():
+            return If(self.in_ins_valid & (self.in_ins[15:8] == tile_no),
+                Case(self.in_ins[23:16], {
+                    self.OP_PASS: NextState("PASS"),
+                    self.OP_LOAD_WEIGHT: NextState("LOAD_WEIGHT"),
+                    self.OP_MUL: NextState("MUL"),
+                    self.OP_READ_SUM: NextState("READ_SUM")
+                }),
+                NextValue(self.out_ins_valid, 0)
+            ).Else(
+                NextValue(self.out_ins, self.in_ins),
+                NextValue(self.out_ins_valid, self.in_ins_valid)
+            )
 
         self.fsm.act("PASS",
             NextValue(self.out_stream_w_valid, self.in_stream_w_valid),
-            NextValue(self.out_stream_e_valid, self.in_stream_e_valid)
+            NextValue(self.out_stream_e_valid, self.in_stream_e_valid),
+			update_state()
         )
         self.fsm.act("LOAD_WEIGHT",
             If(self.in_stream_w_valid,
                 NextState("PASS")
             ),
-            NextValue(self.out_stream_e_valid, self.in_stream_e_valid)
+            NextValue(self.out_stream_e_valid, self.in_stream_e_valid),
+			update_state()
         )
         self.fsm.act("MUL",
             NextValue(self.out_stream_w_valid, self.in_stream_w_valid),
-            NextValue(self.out_stream_e_valid, self.in_stream_e_valid)
+            NextValue(self.out_stream_e_valid, self.in_stream_e_valid),
+			update_state()
         )
         self.fsm.act("READ_SUM",
             NextValue(self.out_stream_w_valid, self.in_stream_w_valid),
             NextValue(self.out_stream_e_valid, 1),
-            NextState("PASS")
+            NextState("PASS"),
+			update_state()
         )
-
-        self.sync += [
-            If(self.in_ins_valid & (self.in_ins[15:8] == self.tile_no),
-                Case(self.in_ins[23:16], {
-                    self.OP_PASS: self.state.eq(self.STATE_PASS),
-                    self.OP_LOAD_WEIGHT: self.state.eq(self.STATE_LOAD_WEIGHT),
-                    self.OP_MUL: self.state.eq(self.STATE_MUL),
-                    self.OP_READ_SUM: self.state.eq(self.STATE_READ_SUM)
-                }),
-                self.out_ins_valid.eq(0)
-            ).Else(
-                self.out_ins.eq(self.in_ins),
-                self.out_ins_valid.eq(self.in_ins_valid)
-            )
-        ]
 
 class DotSlice(Module):
     def __init__(self, data_width=512, num_tiles=16, ins_width=64):
