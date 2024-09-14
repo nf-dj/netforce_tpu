@@ -350,7 +350,6 @@ class DotUnit(Module):
         self.weight = Signal(8, reset=0)
         self.sum = Signal(16, reset=0)
 
-        self.submodules.fsm = FSM(reset_state="PASS")
         self.fsm.act("PASS",
             If(self.in_stream_w_valid,
                 self.out_stream_w.eq(self.in_stream_w)
@@ -405,6 +404,8 @@ class DotTile(Module):
         self.state = Signal(2)
         self.weight_inter = Array([Signal(8) for _ in range(4)])
 
+        self.submodules.fsm = FSM(reset_state="PASS")
+
         self.submodules.dots = [DotUnit(fsm = self.fsm) for _ in range(4)]
         for i, dot in enumerate(self.dots):
             self.comb += [
@@ -417,8 +418,6 @@ class DotTile(Module):
                 dot.in_weight.eq(self.weight_inter[i-1] if i > 0 else 0),  # FIXME: Handle in_weight for i==0
 				dot.out_weight.eq(self.weight_inter[i]),
             ]
-
-        self.submodules.fsm = FSM(reset_state="PASS")
 
 		def update_state():
             return If(self.in_ins_valid & (self.in_ins[15:8] == tile_no),
@@ -539,9 +538,9 @@ class DotInsDec(Module):
 # vector compute
 
 class VecUnit(Module):
-    def __init__(self):
+    def __init__(self fsm):
         self.clk = ClockSignal()
-        self.state = Signal(2)
+		self.fsm = fsm
         self.in_stream_w = Signal(8)
         self.in_stream_valid_w = Signal()
         self.in_stream_e = Signal(8)
@@ -555,39 +554,27 @@ class VecUnit(Module):
         self.const_b = Signal(8)
         self.sum = Signal(16)
 
-        self.STATE_PASS = 0
-        self.STATE_LOAD = 1
-        self.STATE_ADD = 2
-        self.STATE_REVERT = 3
-
-        self.sync += [
-            Case(self.state, {
-                self.STATE_PASS: [
-                    self.out_stream_w.eq(self.in_stream_w),
-                    self.out_stream_e.eq(self.in_stream_e)
-                ],
-                self.STATE_LOAD: [
-                    If(self.in_stream_valid_w,
-                        self.const_b.eq(self.in_stream_w)
-                    )
-                ],
-                self.STATE_ADD: [
-                    If(self.in_stream_valid_e,
-                        self.out_stream_e.eq(self.in_stream_e + self.const_b)
-                    )
-                ],
-                self.STATE_REVERT: [
-                    self.out_stream_e.eq(self.in_stream_w)
-                ]
-            })
-        ]
+        self.submodules.fsm = FSM(reset_state="PASS")
+        self.fsm.act("PASS",
+            NextValue(self.out_stream_w, self.in_stream_w),
+            NextValue(self.out_stream_e, self.in_stream_e),
+        )
+        self.fsm.act("LOAD",
+            If(self.in_stream_valid_w,
+                NextValue(self.const_b, self.in_stream_w)
+            ),
+        )
+        self.fsm.act("ADD",
+            If(self.in_stream_valid_e,
+                NextValue(self.out_stream_e, self.in_stream_e + self.const_b)
+            ),
+        )
+        self.fsm.act("REVERT",
+            NextValue(self.out_stream_e, self.in_stream_w),
+        )
 
 class VecTile(Module):
     def __init__(self, tile_no=0, ins_width=64, lane_width=32):
-        self.tile_no = tile_no
-        self.ins_width = ins_width
-        self.lane_width = lane_width
-
         self.clk = ClockSignal()
         self.in_stream_w = Signal(lane_width)
         self.in_stream_valid_w = Signal()
@@ -603,65 +590,59 @@ class VecTile(Module):
         self.out_ins = Signal(ins_width)
         self.out_ins_valid = Signal()
 
-        self.state = Signal(2, reset=0)  # STATE_PASS
-
-        self.STATE_PASS = 0
-        self.STATE_LOAD = 1
-        self.STATE_ADD = 2
-        self.STATE_REVERT = 3
         self.OP_PASS = 0
         self.OP_LOAD = 1
         self.OP_ADD = 2
         self.OP_REVERT = 3
 
-        for i in range(4):
-            unit = VecUnit()
-            setattr(self.submodules, f"unit_{i}", unit)
+        self.submodules.fsm = FSM(reset_state="PASS")
 
+        self.vec_units = [VecUnit(fsm=fsm) for _ in range(4)]
+        for i, unit in enumerate(self.vec_units):
+            self.submodules += unit
             self.comb += [
-                unit.clk.eq(self.clk),
-                unit.state.eq(self.state),
                 unit.in_stream_w.eq(self.in_stream_w[i*8:i*8+8]),
                 unit.in_stream_valid_w.eq(self.in_stream_valid_w),
-                self.out_stream_e[i*8:i*8+8].eq(unit.out_stream_e),
                 unit.in_stream_e.eq(self.in_stream_e[i*8:i*8+8]),
                 unit.in_stream_valid_e.eq(self.in_stream_valid_e),
+                self.out_stream_e[i*8:i*8+8].eq(unit.out_stream_e),
                 self.out_stream_w[i*8:i*8+8].eq(unit.out_stream_w)
             ]
 
-        self.sync += [
-            Case(self.state, {
-                self.STATE_PASS: [
-                    self.out_stream_valid_w.eq(self.in_stream_valid_w),
-                    self.out_stream_valid_e.eq(self.in_stream_valid_e)
-                ],
-                self.STATE_LOAD: [
-                    self.out_stream_valid_w.eq(0),
-                    self.out_stream_valid_e.eq(self.in_stream_valid_e)
-                ],
-                self.STATE_ADD: [
-                    self.out_stream_valid_w.eq(self.in_stream_valid_w),
-                    self.out_stream_valid_e.eq(self.in_stream_valid_e)
-                ],
-                self.STATE_REVERT: [
-                    self.out_stream_valid_w.eq(0),
-                    self.out_stream_valid_e.eq(self.in_stream_valid_w)
-                ]
-            }),
-
-            If(self.in_ins_valid & (self.in_ins[15:8] == self.tile_no),
+        def update_state():
+            If(self.in_ins_valid & (self.in_ins[15:8] == tile_no),
                 Case(self.in_ins[23:16], {
-                    self.OP_PASS: self.state.eq(self.STATE_PASS),
-                    self.OP_LOAD: self.state.eq(self.STATE_LOAD),
-                    self.OP_ADD: self.state.eq(self.STATE_ADD),
-                    self.OP_REVERT: self.state.eq(self.STATE_REVERT)
+                    self.OP_PASS: NextState("PASS"),
+                    self.OP_LOAD: NextState("LOAD"),
+                    self.OP_ADD: NextState("ADD"),
+                    self.OP_REVERT: NextState("REVERT"),
                 }),
-                self.out_ins_valid.eq(0)
+                NextValue(self.out_ins_valid, 0)
             ).Else(
-                self.out_ins.eq(self.in_ins),
-                self.out_ins_valid.eq(self.in_ins_valid)
+                NextValue(self.out_ins, self.in_ins),
+                NextValue(self.out_ins_valid, self.in_ins_valid)
             )
-        ]
+
+        self.fsm.act("PASS",
+            NextValue(self.out_stream_valid_w, self.in_stream_valid_w),
+            NextValue(self.out_stream_valid_e, self.in_stream_valid_e),
+            update_state(),
+        )
+        self.fsm.act("LOAD",
+            NextValue(self.out_stream_valid_w, 0),
+            NextValue(self.out_stream_valid_e, self.in_stream_valid_e),
+            update_state(),
+        )
+        self.fsm.act("ADD",
+            NextValue(self.out_stream_valid_w, self.in_stream_valid_w),
+            NextValue(self.out_stream_valid_e, self.in_stream_valid_e),
+            update_state(),
+        )
+        self.fsm.act("REVERT",
+            NextValue(self.out_stream_valid_w, 0),
+            NextValue(self.out_stream_valid_e, self.in_stream_valid_w),
+            update_state(),
+        )
 
 class VecSlice(Module):
     def __init__(self, data_width=512, num_tiles=16, ins_width=64):
