@@ -1146,18 +1146,18 @@ class NF_TPU(Module):
         self.stream_valid_inter_e = Array([Signal(num_tiles) for _ in range(6)])
 
         self.comb += [
-            self.sw_in_data_valid.eq(self.input_sw_out_data_valid),
-            self.sw_in_data.eq(self.input_sw_out_data),
+            self.sw_in_data_valid.eq(self.dram_sw_out_data_valid|self.stream_sw_out_data_valid),
+            self.sw_in_data.eq(If(self.dram_sw_out_data_valid,self.dram_sw_out_data).Else(stream_sw_out_data)),
         ]
 
         self.submodules.stream_io = StreamIO(id_no=0, sink=self.sink, source=self.source data_width=data_width, ins_width=ins_width, input_width=input_width)
         self.comb += [
             self.stream_io.out_ins.eq(self.ins_inter[0]),
             self.stream_io.out_ins_valid.eq(self.ins_valid_inter[0]),
-            self.stream_io.in_sw_data.eq(self.sw_out_data),
-            self.stream_io.in_sw_data_valid.eq(self.sw_out_data_valid)
             self.stream_io.out_sw_data.eq(self.stream_out_sw_data),
             self.stream_io.out_sw_data_valid.eq(self.stream_out_sw_data_valid),
+            self.stream_io.in_sw_data.eq(self.sw_out_data),
+            self.stream_io.in_sw_data_valid.eq(self.sw_out_data_valid)
         ]
 
         self.submodules.dram_io = DramIO(wb, id_no=1, data_width=data_width, addr_width=addr_width, ins_width=ins_width)
@@ -1174,10 +1174,10 @@ class NF_TPU(Module):
 
         self.submodules.sw_id1 = SwitchInsDec(id_no=2)
         self.comb += [
-            self.sw_id1.in_ins.eq(self.ins_inter[0]),
-            self.sw_id1.in_ins_valid.eq(self.ins_valid_inter[0]),
-            self.sw_id1.out_ins.eq(self.ins_inter[1]),
-            self.sw_id1.out_ins_valid.eq(self.ins_valid_inter[1]),
+            self.sw_id1.in_ins.eq(self.ins_inter[1]),
+            self.sw_id1.in_ins_valid.eq(self.ins_valid_inter[1]),
+            self.sw_id1.out_ins.eq(self.ins_inter[2]),
+            self.sw_id1.out_ins_valid.eq(self.ins_valid_inter[2]),
             self.sw_id1.out_slice_ins.eq(self.slice_ins[0]),
             self.sw_id1.out_slice_ins_valid.eq(self.slice_ins_valid[0]),
         ]
