@@ -179,78 +179,77 @@ class MemInsDec(Module):
 
 class SwitchTile(Module):
     def __init__(self, tile_no=0, ins_width=64):
-        self.tile_no = tile_no
-        self.ins_width = ins_width
-
         self.clk = ClockSignal()
+        
         self.in_stream = Signal(32)
         self.in_stream_valid = Signal()
-        self.in_data = Signal(32)
-        self.in_data_valid = Signal()
-        self.in_ins = Signal(ins_width)
-        self.in_ins_valid = Signal()
-
         self.out_stream = Signal(32)
         self.out_stream_valid = Signal()
+        
+        self.in_data = Signal(32)
+        self.in_data_valid = Signal()
         self.out_data = Signal(32)
         self.out_data_valid = Signal()
+        
+        self.in_ins = Signal(ins_width)
+        self.in_ins_valid = Signal()
         self.out_ins = Signal(ins_width)
         self.out_ins_valid = Signal()
 
-        self.state = Signal(2, reset=0)  # STATE_PASS
+        self.ins_tile_no = Signal(8)
+        self.ins_state = Signal(8)
 
-        self.STATE_PASS = 0
-        self.STATE_DRAM_IN = 1
-        self.STATE_DRAM_OUT = 2
+        self.comb += [
+            self.ins_tile_no.eq(self.in_ins[15:8]),
+            self.ins_state.eq(self.in_ins[23:16])
+        ]
 
-        self.submodules.fsm = FSM(reset_state="PASS")
-        self.fsm.act("PASS",
+        self.submodules.fsm = fsm = FSM(reset_state="PASS")
+        fsm.act("PASS",
             NextValue(self.out_stream, self.in_stream),
             NextValue(self.out_stream_valid, self.in_stream_valid),
-            If(self.in_ins_valid & (self.in_ins[15:8] == self.tile_no),
-                NextValue(self.state, self.in_ins[23:16]),
-                NextValue(self.out_ins, 0),
-                NextValue(self.out_ins_valid, 0),
-                NextState("HANDLE_INS")
-            ).Else(
-                NextValue(self.out_ins, self.in_ins),
-                NextValue(self.out_ins_valid, self.in_ins_valid)
+            If(self.in_ins_valid & (self.ins_tile_no == tile_no),
+                Case(self.ins_state, {
+                    0: NextState("PASS"),
+                    1: NextState("DRAM_IN"),
+                    2: NextState("DRAM_OUT")
+                })
             )
         )
-        self.fsm.act("HANDLE_INS",
-            Case(self.state, {
-                self.STATE_PASS: NextState("PASS"),
-                self.STATE_DRAM_IN: NextState("DRAM_IN"),
-                self.STATE_DRAM_OUT: NextState("DRAM_OUT")
-            })
-        )
-        self.fsm.act("DRAM_IN",
+        fsm.act("DRAM_IN",
             NextValue(self.out_stream, self.in_data),
             NextValue(self.out_stream_valid, self.in_data_valid),
-            If(self.in_ins_valid & (self.in_ins[15:8] == self.tile_no),
-                NextValue(self.state, self.in_ins[23:16]),
-                NextValue(self.out_ins, 0),
-                NextValue(self.out_ins_valid, 0),
-                NextState("HANDLE_INS")
-            ).Else(
-                NextValue(self.out_ins, self.in_ins),
-                NextValue(self.out_ins_valid, self.in_ins_valid)
+            If(self.in_ins_valid & (self.ins_tile_no == tile_no),
+                Case(self.ins_state, {
+                    0: NextState("PASS"),
+                    1: NextState("DRAM_IN"),
+                    2: NextState("DRAM_OUT")
+                })
             )
         )
-        self.fsm.act("DRAM_OUT",
+        fsm.act("DRAM_OUT",
             NextValue(self.out_data, self.in_stream),
             NextValue(self.out_data_valid, self.in_stream_valid),
             NextValue(self.out_stream, 0),
-            If(self.in_ins_valid & (self.in_ins[15:8] == self.tile_no),
-                NextValue(self.state, self.in_ins[23:16]),
+            NextValue(self.out_stream_valid, 0),
+            If(self.in_ins_valid & (self.ins_tile_no == tile_no),
+                Case(self.ins_state, {
+                    0: NextState("PASS"),
+                    1: NextState("DRAM_IN"),
+                    2: NextState("DRAM_OUT")
+                })
+            )
+        )
+
+        self.sync += [
+            If(self.in_ins_valid & (self.ins_tile_no == tile_no),
                 NextValue(self.out_ins, 0),
-                NextValue(self.out_ins_valid, 0),
-                NextState("HANDLE_INS")
+                NextValue(self.out_ins_valid, 0)
             ).Else(
                 NextValue(self.out_ins, self.in_ins),
                 NextValue(self.out_ins_valid, self.in_ins_valid)
             )
-        )
+        ]
 
 class SwitchSlice(Module):
     def __init__(self, num_tiles=16, data_width=512, ins_width=64):
