@@ -881,20 +881,20 @@ initial begin
 end
 
 always @(posedge clk) begin
-	if (data_in_valid) begin
-		buffer[count] <= data_in;
-		if (count == 7) begin
+    if (data_in_valid) begin
+        buffer[count] <= data_in;
+        if (count == 7) begin
             data_out <= {buffer[7], buffer[6], buffer[5], buffer[4], 
                              buffer[3], buffer[2], buffer[1], buffer[0]};
-			data_out_valid <= 1;
-			count <= 0;
-		end else begin
-			count <= count + 1;
-			data_out_valid <= 0;
-		end
-	end else begin
-		data_out_valid <= 0;
-	end
+            data_out_valid <= 1;
+            count <= 0;
+        end else begin
+            count <= count + 1;
+            data_out_valid <= 0;
+        end
+    end else begin
+        data_out_valid <= 0;
+    end
 end
 
 endmodule
@@ -1360,7 +1360,7 @@ module nf_tpu #(
         .ID_NO(1)
     ) dram (
         .clk(clk),
-		.wb_adr_o(dram_addr),
+        .wb_adr_o(dram_addr),
         .wb_dat_o(dram_dat_w),
         .wb_dat_i(dram_dat_r),
         .wb_we_o(dram_we),
