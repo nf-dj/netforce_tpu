@@ -1,3 +1,4 @@
+from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
 
 _io = [

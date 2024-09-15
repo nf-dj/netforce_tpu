@@ -1281,7 +1281,7 @@ endmodule
 
 // top
 
-module npu #(
+module nf_tpu #(
     parameter DATA_WIDTH = 512,
     parameter PCIE_WIDTH = 64,
     parameter ADDR_WIDTH = 32,
@@ -1291,48 +1291,37 @@ module npu #(
     input wire clk,
     input wire reset,
 
-    output reg [ADDR_WIDTH-1:0] dram_araddr,
-    output reg [7:0] dram_arlen,
-    output reg dram_arvalid,
-    input wire dram_arready,
+    input wire [PCIE_WIDTH-1:0] sink_data,
+    input wire sink_valid,
+    input wire sink_last,
+    output reg sink_ready,
 
-    input wire [DATA_WIDTH-1:0] dram_rdata,
-    input wire dram_rvalid,
-    output reg dram_rready,
+    output reg [PCIE_WIDTH-1:0] source_data,
+    output reg source_valid,
+    output reg source_last,
+    input wire source_ready,
 
-    output reg [ADDR_WIDTH-1:0] dram_awaddr,
-    output reg [7:0] dram_awlen,
-    output reg dram_awvalid,
-    input wire dram_awready,
-
-    output reg [DATA_WIDTH-1:0] dram_wdata,
-    output reg dram_wvalid,
-    input wire dram_wready,
-
-    input [PCIE_WIDTH-1:0] pcie0_rx_tdata,
-    input pcie0_rx_tvalid,
-    input pcie0_rx_tlast,
-    input pcie0_rx_tkeep,
-    output pcie0_rx_tready,
-
-    output [PCIE_WIDTH-1:0] pcie0_tx_tdata,
-    output pcie_tx_tvalid,
-    output pcie0_tx_tlast,
-    output pcie0_tx_tkeep,
-    input pcie0_tx_tready
+    output reg [ADDR_WIDTH-1:0] dram_addr,
+    output reg [DATA_WIDTH-1:0] dram_dat_w,
+    input wire [DATA_WIDTH-1:0] dram_dat_r,
+    output reg dram_we,
+    output reg [DATA_WIDTH/8-1:0] dram_sel,
+    output reg dram_stb,
+    output reg dram_cyc,
+    input wire dram_ack
 );
     wire [DATA_WIDTH-1:0] dram_sw_data_out;
     wire dram_sw_data_out_valid;
-    wire [DATA_WIDTH-1:0] pcie_sw_data_out;
-    wire pcie_sw_data_out_valid;
+    wire [DATA_WIDTH-1:0] stream_sw_data_out;
+    wire stream_sw_data_out_valid;
     wire [INS_WIDTH-1:0] ins_inter[0:7];
     wire ins_valid_inter[0:7];
     wire [DATA_WIDTH-1:0] sw_data_in;
     wire sw_data_in_valid;
     wire [DATA_WIDTH-1:0] sw_data_out;
     wire sw_data_out_valid;
-    wire [PCIE_WIDTH-1:0] pcie0_in;
-    wire pcie0_in_valid;
+    wire [PCIE_WIDTH-1:0] stream_in;
+    wire stream_in_valid;
     //wire io_out_valid;
     wire [INS_WIDTH-1:0] slice_ins[0:7];
     wire slice_ins_valid[0:7];
@@ -1341,21 +1330,21 @@ module npu #(
     wire [NUM_TILES-1:0] stream_valid_inter_w[0:5];
     wire [NUM_TILES-1:0] stream_valid_inter_e[0:5];
 
-    assign sw_data_in_valid = dram_sw_data_out_valid || pcie_sw_data_out_valid;
-    assign sw_data_in = dram_sw_data_out_valid ? dram_sw_data_out : pcie_sw_data_out;
+    assign sw_data_in_valid = dram_sw_data_out_valid || stream_sw_data_out_valid;
+    assign sw_data_in = dram_sw_data_out_valid ? dram_sw_data_out : stream_sw_data_out;
 
-    pcie_if #(
+    stream_if #(
         .ID_NO(0)
-    ) pcie0_if (
+    ) stream_if (
         .clk(clk),
-        .rx_tdata(pcie0_rx_tdata),
-        .rx_tvalid(pcie0_rx_tvalid),
-        .rx_tlast(pcie0_r_tlast),
-        .rx_tready(pcie0_rx_tready),
-        .tx_tdata(pcie0_tx_tdata),
-        .tx_tvalid(pcie0_tx_tvalid),
-        .tx_tlast(pcie0_tx_tlast),
-        .tx_tready(pcie0_tx_tready),
+        .rx_tdata(sink_data),
+        .rx_tvalid(sink_valid),
+        .rx_tlast(sink_last),
+        .rx_tready(sink_ready),
+        .tx_tdata(source_data),
+        .tx_tvalid(source_valid),
+        .tx_tlast(source_last),
+        .tx_tready(source_ready),
         .ins_out(ins_inter[0]),
         .ins_out_valid(ins_valid_inter[0]),
         .sw_data_out(pcie_sw_data_out),
@@ -1368,7 +1357,7 @@ module npu #(
         .ID_NO(1)
     ) dram_if1 (
         .clk(clk),
-        .axi_araddr(dram_araddr),
+        .axi_araddr(dram_addr),
         .axi_arlen(dram_arlen),
         .axi_arvalid(dram_arvalid),
         .axi_arready(dram_arready),
