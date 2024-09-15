@@ -1098,24 +1098,16 @@ module dram_io #(
     parameter INS_WIDTH = 64
 ) (
     input wire clk,
+    input wire rst,
 
-    output reg [ADDR_WIDTH-1:0] axi_araddr,
-    output reg [7:0] axi_arlen,
-    output reg axi_arvalid,
-    input wire axi_arready,
-
-    input wire [DATA_WIDTH-1:0] axi_rdata,
-    input wire axi_rvalid,
-    output reg axi_rready,
-
-    output reg [ADDR_WIDTH-1:0] axi_awaddr,
-    output reg [7:0] axi_awlen,
-    output reg axi_awvalid,
-    input wire axi_awready,
-
-    output reg [DATA_WIDTH-1:0] axi_wdata,
-    output reg axi_wvalid,
-    input wire axi_wready,
+    output reg [ADDR_WIDTH-1:0] wb_adr_o,
+    output reg [DATA_WIDTH-1:0] wb_dat_o,
+    input wire [DATA_WIDTH-1:0] wb_dat_i,
+    output reg wb_we_o,
+    output reg [DATA_WIDTH/8-1:0] wb_sel_o,
+    output reg wb_stb_o,
+    output reg wb_cyc_o,
+    input wire wb_ack_i,
 
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
@@ -1154,11 +1146,12 @@ module dram_io #(
 
     initial begin
         state = STATE_IDLE;
-        axi_araddr = 0;
-        axi_arlen = 0;
+        wb_adr_o = 0;
         burst_counter = 0;
-        axi_arvalid = 0;
-        axi_rready = 0;
+        wb_stb_o = 0;
+        wb_cyc_o = 0;
+        wb_we_o = 0;
+        wb_sel_o = {(DATA_WIDTH/8){1'b1}};
         ins_out_valid = 0;
         dram_ins_in_valid = 0;
         dram_ins_in = 0;
@@ -1174,100 +1167,111 @@ module dram_io #(
         .ins_out_ready(fifo_ins_out_ready)
     );
 
-    wire [63:0] test = axi_rdata[63:0];
-
     always @(posedge clk) begin
-        case (state)
-            STATE_IDLE: begin
-                ins_out_valid <= 0;
-                dram_ins_in_valid <= 0;
-                sw_data_out_valid <= 0;
-                ins_out <= 0;
-                sw_data_out <= 0;
-                axi_wvalid <= 0;
-                if (fifo_ins_out_valid) begin
-                    case (fifo_ins_out[15:8])
-                        OP_NOP: state <= STATE_IDLE;
-                        OP_READ_INS: begin
-                            state <= STATE_READ_INS;
-                            axi_araddr <= fifo_ins_out[47:16];
-                            axi_arlen  <= fifo_ins_out[55:48];
-                            burst_counter <= fifo_ins_out[55:48];
-                            axi_arvalid <= 1;
-                            axi_rready <= 1;
+        if (rst) begin
+            state <= STATE_IDLE;
+            wb_stb_o <= 0;
+            wb_cyc_o <= 0;
+            wb_we_o <= 0;
+            ins_out_valid <= 0;
+            dram_ins_in_valid <= 0;
+            sw_data_out_valid <= 0;
+        end else begin
+            case (state)
+                STATE_IDLE: begin
+                    ins_out_valid <= 0;
+                    dram_ins_in_valid <= 0;
+                    sw_data_out_valid <= 0;
+                    ins_out <= 0;
+                    sw_data_out <= 0;
+                    wb_stb_o <= 0;
+                    wb_cyc_o <= 0;
+                    if (fifo_ins_out_valid) begin
+                        case (fifo_ins_out[15:8])
+                            OP_NOP: state <= STATE_IDLE;
+                            OP_READ_INS: begin
+                                state <= STATE_READ_INS;
+                                wb_adr_o <= fifo_ins_out[47:16];
+                                burst_counter <= fifo_ins_out[55:48];
+                                wb_stb_o <= 1;
+                                wb_cyc_o <= 1;
+                                wb_we_o <= 0;
+                            end
+                            OP_READ_DATA: begin
+                                state <= STATE_READ_DATA;
+                                wb_adr_o <= fifo_ins_out[47:16];
+                                burst_counter <= fifo_ins_out[55:48];
+                                wb_stb_o <= 1;
+                                wb_cyc_o <= 1;
+                                wb_we_o <= 0;
+                            end
+                            OP_WRITE_DATA: begin
+                                state <= STATE_WRITE_DATA;
+                                wb_adr_o <= fifo_ins_out[47:16];
+                                burst_counter <= fifo_ins_out[55:48];
+                                wb_stb_o <= 1;
+                                wb_cyc_o <= 1;
+                                wb_we_o <= 1;
+                            end
+                        endcase
+                    end
+                end
+                STATE_READ_INS: begin
+                    if (wb_ack_i) begin
+                        if (wb_dat_i[7:0] == 0) begin
+                            dram_ins_in <= wb_dat_i[63:0];
+                            dram_ins_in_valid <= 1;
+                            ins_out <= 0;
+                            ins_out_valid <= 0;
+                        end else begin
+                            ins_out <= wb_dat_i[63:0];
+                            ins_out_valid <= 1;
+                            dram_ins_in <= 0;
+                            dram_ins_in_valid <= 0;
                         end
-                        OP_READ_DATA: begin
-                            state <= STATE_READ_DATA;
-                            axi_araddr <= fifo_ins_out[47:16];
-                            axi_arlen  <= fifo_ins_out[55:48];
-                            burst_counter <= fifo_ins_out[55:48];
-                            axi_arvalid <= 1;
-                            axi_rready <= 1;
+                        if (burst_counter == 0) begin
+                            state <= STATE_IDLE;
+                            wb_stb_o <= 0;
+                            wb_cyc_o <= 0;
+                        end else begin
+                            burst_counter <= burst_counter - 1;
+                            wb_adr_o <= wb_adr_o + (DATA_WIDTH / 8);
                         end
-                        OP_WRITE_DATA: begin
-                            state <= STATE_WRITE_DATA;
-                            axi_awaddr <= fifo_ins_out[47:16];
-                            axi_awlen  <= fifo_ins_out[55:48];
-                            burst_counter <= fifo_ins_out[55:48];
-                            axi_awvalid <= 1;
+                    end
+                end
+                STATE_READ_DATA: begin
+                    if (wb_ack_i) begin
+                        sw_data_out <= wb_dat_i;
+                        sw_data_out_valid <= 1;
+                        if (burst_counter == 0) begin
+                            state <= STATE_IDLE;
+                            wb_stb_o <= 0;
+                            wb_cyc_o <= 0;
+                        end else begin
+                            burst_counter <= burst_counter - 1;
+                            wb_adr_o <= wb_adr_o + (DATA_WIDTH / 8);
                         end
-                    endcase
-                end
-            end
-            STATE_READ_INS: begin
-                if (axi_arvalid && axi_arready) begin
-                    axi_arvalid <= 0;
-                end
-                if (axi_rvalid) begin
-                    if (axi_rdata[7:0] == 0) begin
-                        dram_ins_in <= axi_rdata[63:0];
-                        dram_ins_in_valid <= 1;
-                        ins_out <= 0;
-                        ins_out_valid <= 0;
-                    end else begin
-                        ins_out <= axi_rdata[63:0];
-                        ins_out_valid <= 1;
-                        dram_ins_in <= 0;
-                        dram_ins_in_valid <= 0;
-                    end
-                    if (burst_counter == 0) begin
-                        state <= STATE_IDLE;
-                        axi_rready <= 0;
-                    end else begin
-                        burst_counter <= burst_counter - 1;
                     end
                 end
-            end
-            STATE_READ_DATA: begin
-                if (axi_arvalid && axi_arready) begin
-                    axi_arvalid <= 0;
-                end
-                if (axi_rvalid) begin
-                    sw_data_out <= axi_rdata;
-                    sw_data_out_valid <= 1;
-                    if (burst_counter == 0) begin
-                        state <= STATE_IDLE;
-                        axi_rready <= 0;
-                    end else begin
-                        burst_counter <= burst_counter - 1;
+                STATE_WRITE_DATA: begin
+                    if (sw_data_in_valid) begin
+                        wb_dat_o <= sw_data_in;
+                        if (wb_ack_i) begin
+                            if (burst_counter == 0) begin
+                                state <= STATE_IDLE;
+                                wb_stb_o <= 0;
+                                wb_cyc_o <= 0;
+                                wb_we_o <= 0;
+                            end else begin
+                                burst_counter <= burst_counter - 1;
+                                wb_adr_o <= wb_adr_o + (DATA_WIDTH / 8);
+                            end
+                        end
                     end
                 end
-            end
-            STATE_WRITE_DATA: begin
-                if (axi_awvalid && !axi_awready) begin
-                    axi_awvalid <= 0;
-                end
-                if (sw_data_in_valid) begin
-                    axi_wdata <= sw_data_in;
-                    axi_wvalid <= 1;
-                    if (burst_counter == 0) begin
-                        state <= STATE_IDLE;
-                    end else begin
-                        burst_counter <= burst_counter - 1;
-                    end
-                end
-            end
-        endcase
+            endcase
+        end
+        
         if (fifo_ins_in_valid) begin
             ins_out <= 0;
             ins_out_valid <= 0;
@@ -1356,13 +1360,14 @@ module nf_tpu #(
         .ID_NO(1)
     ) dram (
         .clk(clk),
-        .axi_araddr(dram_addr),
-        .axi_arlen(dram_arlen),
-        .axi_arvalid(dram_arvalid),
-        .axi_arready(dram_arready),
-        .axi_rdata(dram_rdata),
-        .axi_rvalid(dram_rvalid),
-        .axi_rready(dram_rready),
+		.wb_adr_o(dram_addr),
+        .wb_dat_o(dram_dat_w),
+        .wb_dat_i(dram_dat_r),
+        .wb_we_o(dram_we),
+        .wb_sel_o(dram_sel),
+        .wb_stb_o(dram_stb),
+        .wb_cyc_o(dram_cyc),
+        .wb_ack_i(dram_ack),
         .ins_in(ins_inter[0]),
         .ins_in_valid(ins_valid_inter[0]),
         .ins_out(ins_inter[1]),
