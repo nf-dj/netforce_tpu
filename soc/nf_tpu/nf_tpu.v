@@ -1,149 +1,4 @@
-// switch
-
-module sw_tile #(
-    parameter int TILE_NO = 0,
-    parameter INS_WIDTH = 64
-) (
-    input wire clk,
-    input [31:0] stream_in,
-    input stream_in_valid,
-    output reg [31:0] stream_out,
-    output reg stream_out_valid,
-    input [31:0] data_in,
-    input data_in_valid,
-    output reg [31:0] data_out,
-    output reg data_out_valid,
-    input [INS_WIDTH-1:0] ins_in,
-    input ins_in_valid,
-    output reg [INS_WIDTH-1:0] ins_out,
-    output reg ins_out_valid
-);
-
-    localparam STATE_PASS = 0;
-    localparam STATE_DRAM_IN = 1;
-    localparam STATE_DRAM_OUT = 2;
-
-    reg [7:0] state;
-
-    initial begin
-        state = STATE_PASS;
-        ins_out_valid = 0;
-        stream_out_valid = 0;
-        data_out_valid = 0;
-    end
-
-    wire [7:0] ins_tile_no = ins_in[15:8];
-    wire [7:0] ins_state = ins_in[23:16];
-
-    always @(posedge clk) begin
-        if (state == STATE_PASS) begin
-            stream_out <= stream_in;
-            stream_out_valid <= stream_in_valid;
-        end else if (state == STATE_DRAM_IN) begin
-            stream_out <= data_in;
-            stream_out_valid <= data_in_valid;
-        end else if (state == STATE_DRAM_OUT) begin
-            data_out <= stream_in;
-            data_out_valid <= stream_in_valid;
-            stream_out <= 0;
-        end
-        if (ins_in_valid && ins_tile_no == TILE_NO) begin
-            state <= ins_state;
-            ins_out <= 0;
-            ins_out_valid <= 0;
-        end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
-        end
-    end
-
-endmodule
-
-module sw_slice #(
-    parameter int NUM_TILES = 16,  // 16*32=512
-    parameter DATA_WIDTH = 512,
-    parameter INS_WIDTH = 64
-) (
-    input wire clk,
-    input [DATA_WIDTH-1:0] stream_in,
-    input [NUM_TILES-1:0] stream_in_valid,
-    output [DATA_WIDTH-1:0] stream_out,
-    output [NUM_TILES-1:0] stream_out_valid,
-    input [DATA_WIDTH-1:0] data_in,
-    input data_in_valid,
-    output [DATA_WIDTH-1:0] data_out,
-    output data_out_valid,
-    input [INS_WIDTH-1:0] ins_in,
-    input ins_in_valid
-);
-
-    wire [INS_WIDTH-1:0] ins_inter[NUM_TILES-1:0];
-    wire ins_valid_inter[NUM_TILES-1:0];
-    wire intermediate_or[NUM_TILES-1:0];
-    wire tile_data_out_valid[NUM_TILES-1:0];
-
-    genvar i;
-    generate
-        for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
-            sw_tile #(
-                .TILE_NO(i)
-            ) tile (
-                .clk(clk),
-                .stream_in(stream_in[i*32+:32]),
-                .stream_in_valid(stream_in_valid[i]),
-                .stream_out(stream_out[i*32+:32]),
-                .stream_out_valid(stream_out_valid[i]),
-                .data_in(data_in[i*32+:32]),
-                .data_in_valid(data_in_valid),
-                .data_out(data_out[i*32+:32]),
-                .data_out_valid(tile_data_out_valid[i]),
-                .ins_in(i == 0 ? ins_in : ins_inter[i-1]),
-                .ins_in_valid(i == 0 ? ins_in_valid : ins_valid_inter[i-1]),
-                .ins_out(ins_inter[i]),
-                .ins_out_valid(ins_valid_inter[i])
-            );
-
-            assign intermediate_or[i] = (i==0 ? 0 : intermediate_or[i-1]) | tile_data_out_valid[i];
-        end
-    endgenerate
-
-    assign data_out_valid = intermediate_or[NUM_TILES-1];
-
-endmodule
-
-module sw_id #(
-    parameter ID_NO  = 2,
-    parameter INS_WIDTH = 64
-) (
-    input wire clk,
-    input [INS_WIDTH-1:0] ins_in,
-    input ins_in_valid,
-    output reg [INS_WIDTH-1:0] ins_out,
-    output reg ins_out_valid,
-    output wire [INS_WIDTH-1:0] slice_ins_out,
-    output wire slice_ins_out_valid
-);
-
-    initial begin
-        ins_out_valid = 0;
-    end
-
-    assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
-    assign slice_ins_out = ins_in;
-
-    always @(posedge clk) begin
-        if (slice_ins_out_valid) begin
-            ins_out <= 0;
-            ins_out_valid <= 0;
-        end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
-        end
-    end
-
-endmodule
-
-// mem
+// internal memory
 
 module mem_tile #(
     parameter TILE_NO = 0,
@@ -339,7 +194,152 @@ module mem_id #(
 
 endmodule
 
-// dot
+// routing switch
+
+module sw_tile #(
+    parameter int TILE_NO = 0,
+    parameter INS_WIDTH = 64
+) (
+    input wire clk,
+    input [31:0] stream_in,
+    input stream_in_valid,
+    output reg [31:0] stream_out,
+    output reg stream_out_valid,
+    input [31:0] data_in,
+    input data_in_valid,
+    output reg [31:0] data_out,
+    output reg data_out_valid,
+    input [INS_WIDTH-1:0] ins_in,
+    input ins_in_valid,
+    output reg [INS_WIDTH-1:0] ins_out,
+    output reg ins_out_valid
+);
+
+    localparam STATE_PASS = 0;
+    localparam STATE_DRAM_IN = 1;
+    localparam STATE_DRAM_OUT = 2;
+
+    reg [7:0] state;
+
+    initial begin
+        state = STATE_PASS;
+        ins_out_valid = 0;
+        stream_out_valid = 0;
+        data_out_valid = 0;
+    end
+
+    wire [7:0] ins_tile_no = ins_in[15:8];
+    wire [7:0] ins_state = ins_in[23:16];
+
+    always @(posedge clk) begin
+        if (state == STATE_PASS) begin
+            stream_out <= stream_in;
+            stream_out_valid <= stream_in_valid;
+        end else if (state == STATE_DRAM_IN) begin
+            stream_out <= data_in;
+            stream_out_valid <= data_in_valid;
+        end else if (state == STATE_DRAM_OUT) begin
+            data_out <= stream_in;
+            data_out_valid <= stream_in_valid;
+            stream_out <= 0;
+        end
+        if (ins_in_valid && ins_tile_no == TILE_NO) begin
+            state <= ins_state;
+            ins_out <= 0;
+            ins_out_valid <= 0;
+        end else begin
+            ins_out <= ins_in;
+            ins_out_valid <= ins_in_valid;
+        end
+    end
+
+endmodule
+
+module sw_slice #(
+    parameter int NUM_TILES = 16,  // 16*32=512
+    parameter DATA_WIDTH = 512,
+    parameter INS_WIDTH = 64
+) (
+    input wire clk,
+    input [DATA_WIDTH-1:0] stream_in,
+    input [NUM_TILES-1:0] stream_in_valid,
+    output [DATA_WIDTH-1:0] stream_out,
+    output [NUM_TILES-1:0] stream_out_valid,
+    input [DATA_WIDTH-1:0] data_in,
+    input data_in_valid,
+    output [DATA_WIDTH-1:0] data_out,
+    output data_out_valid,
+    input [INS_WIDTH-1:0] ins_in,
+    input ins_in_valid
+);
+
+    wire [INS_WIDTH-1:0] ins_inter[NUM_TILES-1:0];
+    wire ins_valid_inter[NUM_TILES-1:0];
+    wire intermediate_or[NUM_TILES-1:0];
+    wire tile_data_out_valid[NUM_TILES-1:0];
+
+    genvar i;
+    generate
+        for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
+            sw_tile #(
+                .TILE_NO(i)
+            ) tile (
+                .clk(clk),
+                .stream_in(stream_in[i*32+:32]),
+                .stream_in_valid(stream_in_valid[i]),
+                .stream_out(stream_out[i*32+:32]),
+                .stream_out_valid(stream_out_valid[i]),
+                .data_in(data_in[i*32+:32]),
+                .data_in_valid(data_in_valid),
+                .data_out(data_out[i*32+:32]),
+                .data_out_valid(tile_data_out_valid[i]),
+                .ins_in(i == 0 ? ins_in : ins_inter[i-1]),
+                .ins_in_valid(i == 0 ? ins_in_valid : ins_valid_inter[i-1]),
+                .ins_out(ins_inter[i]),
+                .ins_out_valid(ins_valid_inter[i])
+            );
+
+            assign intermediate_or[i] = (i==0 ? 0 : intermediate_or[i-1]) | tile_data_out_valid[i];
+        end
+    endgenerate
+
+    assign data_out_valid = intermediate_or[NUM_TILES-1];
+
+endmodule
+
+module sw_id #(
+    parameter ID_NO  = 2,
+    parameter INS_WIDTH = 64
+) (
+    input wire clk,
+    input [INS_WIDTH-1:0] ins_in,
+    input ins_in_valid,
+    output reg [INS_WIDTH-1:0] ins_out,
+    output reg ins_out_valid,
+    output wire [INS_WIDTH-1:0] slice_ins_out,
+    output wire slice_ins_out_valid
+);
+
+    initial begin
+        ins_out_valid = 0;
+    end
+
+    assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
+    assign slice_ins_out = ins_in;
+
+    always @(posedge clk) begin
+        if (slice_ins_out_valid) begin
+            ins_out <= 0;
+            ins_out_valid <= 0;
+        end else begin
+            ins_out <= ins_in;
+            ins_out_valid <= ins_in_valid;
+        end
+    end
+
+endmodule
+
+// dot product compute
 
 module dot_unit (
     input clk,
@@ -586,7 +586,7 @@ module dot_id #(
 
 endmodule
 
-// vec
+// vector compute
 
 module vec_unit (
     input clk,
@@ -809,7 +809,236 @@ module vec_id #(
 
 endmodule
 
-// dram 
+// stream io
+
+module fifo_512_to_64 (
+    input wire clk,
+    input wire [511:0] data_in,
+    input wire wr_en,
+    input wire rd_en,
+    output reg [63:0] data_out,
+    output reg data_out_valid,
+    output wire fifo_full,
+    output wire fifo_empty
+);
+
+parameter FIFO_DEPTH = 64;
+parameter INPUT_WIDTH = 512;
+parameter OUTPUT_WIDTH = 64;
+parameter PTR_BITS = $clog2(FIFO_DEPTH);
+
+reg [INPUT_WIDTH-1:0] fifo_mem [0:FIFO_DEPTH-1];
+reg [PTR_BITS-1:0] wr_ptr = 0;
+reg [PTR_BITS-1:0] rd_ptr = 0;
+reg [2:0] rd_shift = 0;
+
+initial begin
+    data_out_valid = 0;
+end
+
+assign fifo_empty = (wr_ptr == rd_ptr) && (rd_shift == 0);
+assign fifo_full = ((wr_ptr + 1'b1) == rd_ptr);
+assign fifo_length = wr_ptr >= rd_ptr ? (wr_ptr - rd_ptr) : (FIFO_DEPTH + wr_ptr - rd_ptr);
+
+always @(posedge clk) begin
+    if (wr_en && !fifo_full) begin
+        fifo_mem[wr_ptr] <= data_in;
+        wr_ptr <= wr_ptr + 1'b1;
+    end
+end
+
+always @(posedge clk) begin
+    if (rd_en && !fifo_empty) begin
+        data_out <= fifo_mem[rd_ptr][rd_shift*OUTPUT_WIDTH +: OUTPUT_WIDTH];
+        rd_shift <= rd_shift + 1'b1;
+        data_out_valid <= 1;
+        if (rd_shift == ((INPUT_WIDTH / OUTPUT_WIDTH) - 1)) begin
+            rd_shift <= 0;
+            rd_ptr <= rd_ptr + 1'b1;
+        end
+    end else begin
+        data_out_valid <= 0;
+    end
+end
+
+endmodule
+
+module conv_64_to_512 (
+    input clk,
+    input [63:0] data_in,
+    input data_in_valid,
+    output reg [511:0] data_out,
+    output reg data_out_valid
+);
+
+reg [63:0] buffer[7:0];
+reg [2:0] count;
+
+initial begin
+    count = 0;
+    data_out_valid = 0;
+    data_out = 0;
+end
+
+always @(posedge clk) begin
+	if (data_in_valid) begin
+		buffer[count] <= data_in;
+		if (count == 7) begin
+            data_out <= {buffer[7], buffer[6], buffer[5], buffer[4], 
+                             buffer[3], buffer[2], buffer[1], buffer[0]};
+			data_out_valid <= 1;
+			count <= 0;
+		end else begin
+			count <= count + 1;
+			data_out_valid <= 0;
+		end
+	end else begin
+		data_out_valid <= 0;
+	end
+end
+
+endmodule
+
+module stream_io #(
+    parameter ID_NO  = 0,
+    parameter DATA_WIDTH = 512,
+    parameter INS_WIDTH = 64,
+    parameter STREAM_WIDTH = 64
+) (
+    input wire clk,
+
+    input [STREAM_WIDTH-1:0] rx_tdata,
+    input rx_tvalid,
+    input rx_tlast,
+    output rx_tready,
+
+    output [STREAM_WIDTH-1:0] tx_tdata,
+    output tx_tvalid,
+    output reg tx_tlast,
+    input tx_tready,
+
+    output reg [INS_WIDTH-1:0] ins_out,
+    output reg ins_out_valid,
+
+    output reg [DATA_WIDTH-1:0] sw_data_out,
+    output reg sw_data_out_valid,
+
+    input [DATA_WIDTH-1:0] sw_data_in,
+    input sw_data_in_valid
+);
+    localparam RX_STATE_INS = 0;
+    localparam RX_STATE_DATA = 1;
+    localparam RX_STATE_NOP = 2;
+
+    localparam TX_STATE_PASS = 0;
+    localparam TX_STATE_DATA = 1;
+
+    localparam OP_READ_DATA = 1;
+    localparam OP_WRITE_DATA = 2;
+    localparam OP_NOP = 3;
+
+    reg [1:0] rx_state;
+    reg [15:0] rx_len;
+    reg [1:0] tx_state;
+    reg [15:0] tx_len;
+
+    reg [STREAM_WIDTH-1:0] rx_conv_data_in;
+    reg rx_conv_data_in_valid;
+
+    wire [STREAM_WIDTH-1:0] fifo_data_out;
+    wire fifo_data_out_valid;
+
+    assign rx_tready = rx_state == RX_STATE_INS || rx_state == RX_STATE_DATA;
+
+    initial begin
+        rx_state = RX_STATE_INS;
+        rx_len = 0;
+        tx_tlast = 1;
+        tx_state = TX_STATE_PASS;
+        tx_len = 0;
+        ins_out_valid = 0;
+        ins_out = 0;
+        rx_conv_data_in = 0;
+        rx_conv_data_in_valid = 0;
+    end
+
+    fifo_512_to_64 tx_fifo (
+        .clk(clk),
+        .data_in(sw_data_in),
+        .wr_en(sw_data_in_valid),
+        .data_out(tx_tdata),
+        .data_out_valid(tx_tvalid),
+        .rd_en(tx_tready)
+    );
+
+    conv_64_to_512 rx_conv (
+        .clk(clk),
+        .data_in(rx_conv_data_in),
+        .data_in_valid(rx_conv_data_in_valid),
+        .data_out(sw_data_out),
+        .data_out_valid(sw_data_out_valid)
+    );
+
+    always @(posedge clk) begin
+        if (rx_state == RX_STATE_INS) begin
+            rx_conv_data_in_valid <= 0;
+            if (rx_tvalid) begin
+                if (rx_tdata[7:0] == 0) begin
+                    if (rx_tdata[15:8] == OP_READ_DATA) begin
+                        rx_state <= RX_STATE_DATA;
+                        rx_len <= rx_tdata[31:16];
+                    end else if (rx_tdata[15:8] == OP_WRITE_DATA) begin
+                        tx_state <= TX_STATE_DATA;
+                        tx_len <= rx_tdata[31:16];
+                    end else if (rx_tdata[15:8] == OP_NOP) begin
+                        rx_state <= RX_STATE_NOP;
+                        rx_len <= rx_tdata[31:16];
+                    end
+                    ins_out <= 0;
+                    ins_out_valid <= 0;
+                end else begin
+                    ins_out <= rx_tdata;
+                    ins_out_valid <= 1;
+                end
+            end else begin
+                ins_out <= 0;
+                ins_out_valid <= 0;
+            end
+        end else if (rx_state == RX_STATE_DATA) begin
+            if (rx_tvalid) begin
+                rx_conv_data_in <= rx_tdata;
+                rx_conv_data_in_valid <= 1;
+                if (rx_len == 0) begin
+                    rx_state <= RX_STATE_INS;
+                end else begin
+                    rx_len <= rx_len - 1;
+                end
+            end else begin
+                rx_conv_data_in_valid <= 0;
+            end
+        end else if (rx_state == RX_STATE_NOP) begin
+            if (rx_len == 0) begin
+                rx_state <= RX_STATE_INS;
+            end else begin
+                rx_len <= rx_len - 1;
+            end
+        end
+        if (tx_state == TX_STATE_DATA) begin
+            if (tx_tvalid) begin // XXX: check this
+                if (tx_len == 0) begin
+                    tx_state <= TX_STATE_PASS;
+                    tx_tlast <= 1;
+                end else begin
+                    tx_len <= tx_len - 1;
+                    tx_tlast <= 0;
+                end
+            end
+        end
+    end
+
+endmodule
+
+// dram io
 
 module id_fifo #(
     parameter INS_WIDTH = 64,
@@ -861,7 +1090,7 @@ module id_fifo #(
 
 endmodule
 
-module dram_if #(
+module dram_io #(
     parameter ID_NO  = 1,
     parameter DATA_WIDTH = 512,
     parameter ADDR_WIDTH = 32,
@@ -1049,241 +1278,11 @@ module dram_if #(
     end
 endmodule
 
-// pcie
-
-module fifo_512_to_64 (
-    input wire clk,
-    input wire [511:0] data_in,
-    input wire wr_en,
-    input wire rd_en,
-    output reg [63:0] data_out,
-    output reg data_out_valid,
-    output wire fifo_full,
-    output wire fifo_empty
-);
-
-parameter FIFO_DEPTH = 64;
-parameter INPUT_WIDTH = 512;
-parameter OUTPUT_WIDTH = 64;
-parameter PTR_BITS = $clog2(FIFO_DEPTH);
-
-reg [INPUT_WIDTH-1:0] fifo_mem [0:FIFO_DEPTH-1];
-reg [PTR_BITS-1:0] wr_ptr = 0;
-reg [PTR_BITS-1:0] rd_ptr = 0;
-reg [2:0] rd_shift = 0;
-
-initial begin
-    data_out_valid = 0;
-end
-
-assign fifo_empty = (wr_ptr == rd_ptr) && (rd_shift == 0);
-assign fifo_full = ((wr_ptr + 1'b1) == rd_ptr);
-assign fifo_length = wr_ptr >= rd_ptr ? (wr_ptr - rd_ptr) : (FIFO_DEPTH + wr_ptr - rd_ptr);
-
-always @(posedge clk) begin
-    if (wr_en && !fifo_full) begin
-        fifo_mem[wr_ptr] <= data_in;
-        wr_ptr <= wr_ptr + 1'b1;
-    end
-end
-
-always @(posedge clk) begin
-    if (rd_en && !fifo_empty) begin
-        data_out <= fifo_mem[rd_ptr][rd_shift*OUTPUT_WIDTH +: OUTPUT_WIDTH];
-        rd_shift <= rd_shift + 1'b1;
-        data_out_valid <= 1;
-        if (rd_shift == ((INPUT_WIDTH / OUTPUT_WIDTH) - 1)) begin
-            rd_shift <= 0;
-            rd_ptr <= rd_ptr + 1'b1;
-        end
-    end else begin
-        data_out_valid <= 0;
-    end
-end
-
-endmodule
-
-module conv_64_to_512 (
-    input clk,
-    input [63:0] data_in,
-    input data_in_valid,
-    output reg [511:0] data_out,
-    output reg data_out_valid
-);
-
-reg [63:0] buffer[7:0];
-reg [2:0] count;
-
-initial begin
-    count = 0;
-    data_out_valid = 0;
-    data_out = 0;
-end
-
-always @(posedge clk) begin
-	if (data_in_valid) begin
-		buffer[count] <= data_in;
-		if (count == 7) begin
-            data_out <= {buffer[7], buffer[6], buffer[5], buffer[4], 
-                             buffer[3], buffer[2], buffer[1], buffer[0]};
-			data_out_valid <= 1;
-			count <= 0;
-		end else begin
-			count <= count + 1;
-			data_out_valid <= 0;
-		end
-	end else begin
-		data_out_valid <= 0;
-	end
-end
-
-endmodule
-
-
-module pcie_if #(
-    parameter ID_NO  = 0,
-    parameter DATA_WIDTH = 512,
-    parameter INS_WIDTH = 64,
-    parameter PCIE_WIDTH = 64
-) (
-    input wire clk,
-
-    input [PCIE_WIDTH-1:0] rx_tdata,
-    input rx_tvalid,
-    input rx_tlast,
-    output rx_tready,
-
-    output [PCIE_WIDTH-1:0] tx_tdata,
-    output tx_tvalid,
-    output reg tx_tlast,
-    input tx_tready,
-
-    output reg [INS_WIDTH-1:0] ins_out,
-    output reg ins_out_valid,
-
-    output reg [DATA_WIDTH-1:0] sw_data_out,
-    output reg sw_data_out_valid,
-
-    input [DATA_WIDTH-1:0] sw_data_in,
-    input sw_data_in_valid
-);
-    localparam RX_STATE_INS = 0;
-    localparam RX_STATE_DATA = 1;
-    localparam RX_STATE_NOP = 2;
-
-    localparam TX_STATE_PASS = 0;
-    localparam TX_STATE_DATA = 1;
-
-    localparam OP_READ_DATA = 1;
-    localparam OP_WRITE_DATA = 2;
-    localparam OP_NOP = 3;
-
-    reg [1:0] rx_state;
-    reg [15:0] rx_len;
-    reg [1:0] tx_state;
-    reg [15:0] tx_len;
-
-    reg [PCIE_WIDTH-1:0] rx_conv_data_in;
-    reg rx_conv_data_in_valid;
-
-    wire [PCIE_WIDTH-1:0] fifo_data_out;
-    wire fifo_data_out_valid;
-
-    assign rx_tready = rx_state == RX_STATE_INS || rx_state == RX_STATE_DATA;
-
-    initial begin
-        rx_state = RX_STATE_INS;
-        rx_len = 0;
-        tx_tlast = 1;
-        tx_state = TX_STATE_PASS;
-        tx_len = 0;
-        ins_out_valid = 0;
-        ins_out = 0;
-        rx_conv_data_in = 0;
-        rx_conv_data_in_valid = 0;
-    end
-
-    fifo_512_to_64 tx_fifo (
-        .clk(clk),
-        .data_in(sw_data_in),
-        .wr_en(sw_data_in_valid),
-        .data_out(tx_tdata),
-        .data_out_valid(tx_tvalid),
-        .rd_en(tx_tready)
-    );
-
-    conv_64_to_512 rx_conv (
-        .clk(clk),
-        .data_in(rx_conv_data_in),
-        .data_in_valid(rx_conv_data_in_valid),
-        .data_out(sw_data_out),
-        .data_out_valid(sw_data_out_valid)
-    );
-
-    always @(posedge clk) begin
-        if (rx_state == RX_STATE_INS) begin
-            rx_conv_data_in_valid <= 0;
-            if (rx_tvalid) begin
-                if (rx_tdata[7:0] == 0) begin
-                    if (rx_tdata[15:8] == OP_READ_DATA) begin
-                        rx_state <= RX_STATE_DATA;
-                        rx_len <= rx_tdata[31:16];
-                    end else if (rx_tdata[15:8] == OP_WRITE_DATA) begin
-                        tx_state <= TX_STATE_DATA;
-                        tx_len <= rx_tdata[31:16];
-                    end else if (rx_tdata[15:8] == OP_NOP) begin
-                        rx_state <= RX_STATE_NOP;
-                        rx_len <= rx_tdata[31:16];
-                    end
-                    ins_out <= 0;
-                    ins_out_valid <= 0;
-                end else begin
-                    ins_out <= rx_tdata;
-                    ins_out_valid <= 1;
-                end
-            end else begin
-                ins_out <= 0;
-                ins_out_valid <= 0;
-            end
-        end else if (rx_state == RX_STATE_DATA) begin
-            if (rx_tvalid) begin
-                rx_conv_data_in <= rx_tdata;
-                rx_conv_data_in_valid <= 1;
-                if (rx_len == 0) begin
-                    rx_state <= RX_STATE_INS;
-                end else begin
-                    rx_len <= rx_len - 1;
-                end
-            end else begin
-                rx_conv_data_in_valid <= 0;
-            end
-        end else if (rx_state == RX_STATE_NOP) begin
-            if (rx_len == 0) begin
-                rx_state <= RX_STATE_INS;
-            end else begin
-                rx_len <= rx_len - 1;
-            end
-        end
-        if (tx_state == TX_STATE_DATA) begin
-            if (tx_tvalid) begin // XXX: check this
-                if (tx_len == 0) begin
-                    tx_state <= TX_STATE_PASS;
-                    tx_tlast <= 1;
-                end else begin
-                    tx_len <= tx_len - 1;
-                    tx_tlast <= 0;
-                end
-            end
-        end
-    end
-
-endmodule
-
 // top
 
 module nf_tpu #(
     parameter DATA_WIDTH = 512,
-    parameter PCIE_WIDTH = 64,
+    parameter STREAM_WIDTH = 64,
     parameter ADDR_WIDTH = 32,
     parameter INS_WIDTH  = 64,
     parameter NUM_TILES  = 16
@@ -1291,12 +1290,12 @@ module nf_tpu #(
     input wire clk,
     input wire reset,
 
-    input wire [PCIE_WIDTH-1:0] sink_data,
+    input wire [STREAM_WIDTH-1:0] sink_data,
     input wire sink_valid,
     input wire sink_last,
     output reg sink_ready,
 
-    output reg [PCIE_WIDTH-1:0] source_data,
+    output reg [STREAM_WIDTH-1:0] source_data,
     output reg source_valid,
     output reg source_last,
     input wire source_ready,
@@ -1320,7 +1319,7 @@ module nf_tpu #(
     wire sw_data_in_valid;
     wire [DATA_WIDTH-1:0] sw_data_out;
     wire sw_data_out_valid;
-    wire [PCIE_WIDTH-1:0] stream_in;
+    wire [STREAM_WIDTH-1:0] stream_in;
     wire stream_in_valid;
     //wire io_out_valid;
     wire [INS_WIDTH-1:0] slice_ins[0:7];
@@ -1333,9 +1332,9 @@ module nf_tpu #(
     assign sw_data_in_valid = dram_sw_data_out_valid || stream_sw_data_out_valid;
     assign sw_data_in = dram_sw_data_out_valid ? dram_sw_data_out : stream_sw_data_out;
 
-    stream_if #(
+    stream_io #(
         .ID_NO(0)
-    ) stream_if (
+    ) stream (
         .clk(clk),
         .rx_tdata(sink_data),
         .rx_tvalid(sink_valid),
@@ -1347,15 +1346,15 @@ module nf_tpu #(
         .tx_tready(source_ready),
         .ins_out(ins_inter[0]),
         .ins_out_valid(ins_valid_inter[0]),
-        .sw_data_out(pcie_sw_data_out),
-        .sw_data_out_valid(pcie_sw_data_out_valid),
+        .sw_data_out(stream_sw_data_out),
+        .sw_data_out_valid(stream_sw_data_out_valid),
         .sw_data_in(sw_data_out),
         .sw_data_in_valid(sw_data_out_valid)
     );
 
-    dram_if #(
+    dram_io #(
         .ID_NO(1)
-    ) dram_if1 (
+    ) dram (
         .clk(clk),
         .axi_araddr(dram_addr),
         .axi_arlen(dram_arlen),
