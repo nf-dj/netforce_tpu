@@ -47,6 +47,18 @@ class NF_SoC(SoCCore):
         self.submodules.nf_tpu = NF_TPU(platform)
         self.bus.add_master("nf_tpu", master=self.nf_tpu.bus)
 
+        self.submodules.uart_to_nf_tpu = stream.Converter(8, self.nf_tpu.sink.data.nbits)
+        self.comb += [
+            self.uart.source.connect(self.uart_to_nf_tpu.sink),
+            self.uart_to_nf_tpu.source.connect(self.nf_tpu.sink)
+        ]
+
+        self.submodules.nf_tpu_to_uart = stream.Converter(self.nf_tpu.source.data.nbits, 8)
+        self.comb += [
+            self.nf_tpu.source.connect(self.nf_tpu_to_uart.sink),
+            self.nf_tpu_to_uart.source.connect(self.uart.sink)
+        ]
+
 if __name__ == "__main__":
     platform = NF_SimPlatform()
     soc = NF_SoC(platform,
