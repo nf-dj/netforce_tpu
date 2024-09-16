@@ -7,45 +7,16 @@ from litex.soc.integration.builder import *
 from litex.soc.cores import uart
 from litedram.modules import MT41K128M16
 from litedram.phy.model import SDRAMPHYModel
+from platforms.nf_sim import NF_SimPlatform
+from platforms.nf_ecp5 import NF_ECP5
+from platforms.nf_art7 import NF_Art7
 
-class DRAMSimPlatform(SimPlatform):
-    def __init__(self):
-        _io = [
-            ("sys_clk", 0, Pins(1)),
-            ("sys_rst", 0, Pins(1)),
-            ("serial", 0,
-                Subsignal("tx", Pins(1)),
-                Subsignal("rx", Pins(1)),
-            ),
-            ("ddram", 0,
-                Subsignal("a", Pins(14)),
-                Subsignal("ba", Pins(3)),
-                Subsignal("ras_n", Pins(1)),
-                Subsignal("cas_n", Pins(1)),
-                Subsignal("we_n", Pins(1)),
-                Subsignal("cs_n", Pins(1)),
-                Subsignal("dm", Pins(2)),
-                Subsignal("dq", Pins(16)),
-                Subsignal("dqs_p", Pins(2)),
-                Subsignal("dqs_n", Pins(2)),
-                Subsignal("clk_p", Pins(1)),
-                Subsignal("clk_n", Pins(1)),
-                Subsignal("cke", Pins(1)),
-                Subsignal("odt", Pins(1)),
-                Subsignal("reset_n", Pins(1))
-            ),
-        ]
-        SimPlatform.__init__(self, "SIM", _io)
-
-    def create_programmer(self):
-        return GenericProgrammer()
-
-class DRAMTestSoC(SoCCore):
+class NF_SoC(SoCCore):
     def __init__(self, platform, **kwargs):
         sys_clk_freq = int(100e6)
         
         SoCCore.__init__(self, platform, sys_clk_freq,
-            ident="DRAM Test SoC",
+            ident="NF_SoC",
             ident_version=True,
             **kwargs)
 
@@ -73,8 +44,8 @@ class DRAMTestSoC(SoCCore):
 
 
 if __name__ == "__main__":
-    platform = DRAMSimPlatform()
-    soc = DRAMTestSoC(platform,
+    platform = NF_SimPlatform()
+    soc = NF_SoC(platform,
                       cpu_type=None,
                       with_uart=False,
                       with_timer=False)
