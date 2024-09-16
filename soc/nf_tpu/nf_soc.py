@@ -3,10 +3,12 @@ from migen import *
 from litex.build.generic_platform import *
 from litex.build.sim import SimPlatform
 from litex.soc.integration.soc_core import *
+from litex.soc.integration.soc import *
 from litex.soc.integration.builder import *
 from litex.soc.cores import uart
 from litedram.modules import MT41K128M16
 from litedram.phy.model import SDRAMPHYModel
+from nf_tpu import NF_TPU
 from platforms.nf_sim import NF_SimPlatform
 from platforms.nf_ecp5 import NF_ECP5
 from platforms.nf_art7 import NF_Art7
@@ -42,6 +44,8 @@ class NF_SoC(SoCCore):
             size=0x10000000,
             l2_cache_size=0)
 
+        self.submodules.nf_tpu = NF_TPU(platform)
+        self.bus.add_master("nf_tpu", master=self.nf_tpu.bus)
 
 if __name__ == "__main__":
     platform = NF_SimPlatform()
