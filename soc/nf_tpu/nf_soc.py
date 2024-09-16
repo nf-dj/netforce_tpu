@@ -40,7 +40,7 @@ class NF_SoC(SoCCore):
             module=sdram_module,
             origin=0x40000000,
             size=0x10000000,
-            l2_cache_size=32*1024)
+            l2_cache_size=0)
 
 
 if __name__ == "__main__":
