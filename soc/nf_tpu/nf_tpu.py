@@ -2,7 +2,6 @@ from migen import *
 from migen.fhdl import verilog
 from litex.soc.interconnect.stream import Endpoint
 from litex.soc.interconnect import wishbone
-from nf_ecp5 import NF_ECP5
 import os
 
 class NF_TPU(Module):
