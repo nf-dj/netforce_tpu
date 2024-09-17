@@ -82,9 +82,6 @@ module fp8_e4m3_adder(
         end else if (sum_exp == 0 && sum_significand[8:0] == 0) begin
             // Result is zero
             sum = 8'b0;
-        end else if (sum_exp == 0) begin
-            // Denormalized number
-            sum = {sum_sign, 4'b0000, sum_significand[7:5]};
         end else begin
             // Normalized number
             sum = {sum_sign, sum_exp[3:0], sum_significand[7:5]};
@@ -92,3 +89,4 @@ module fp8_e4m3_adder(
     end
 
 endmodule
+
