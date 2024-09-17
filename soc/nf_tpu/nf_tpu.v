@@ -341,67 +341,179 @@ endmodule
 
 // dot product compute
 
-module dot_unit (
-    input clk,
-    input [1:0] state,
-    input [7:0] stream_in_w,
-    input stream_in_w_valid,
-    output reg [7:0] stream_out_e,
-    output reg [7:0] stream_out_w,
-    input [7:0] stream_in_e,
-    input stream_in_e_valid,
-    input [7:0] in_weight,
-    output reg [7:0] out_weight
+module fp8_mul_add (
+    input wire clk,
+    input wire rst,
+    input wire [7:0] a,
+    input wire [7:0] b,
+    input wire [7:0] c,
+    output reg [7:0] result
 );
+    reg [7:0] a_reg, b_reg, c_reg;
+    reg sign_ab, sign_c;
+    reg [4:0] exp_ab, exp_c, exp_r;
+    reg [6:0] frac_ab;
+    reg [4:0] frac_c, frac_r;
+    reg [7:0] sum;
 
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            result <= 8'b0;
+        end else begin
+            // Stage 1: Input registration and initial calculations
+            a_reg <= a;
+            b_reg <= b;
+            c_reg <= c;
+            sign_ab <= a[7] ^ b[7];
+            sign_c <= c[7];
+            exp_ab <= a[6:3] + b[6:3] - 4'b0111;
+            exp_c <= c[6:3];
+            frac_ab <= ({1'b1, a[2:0]} * {1'b1, b[2:0]});
+            frac_c <= {1'b1, c[2:0], 1'b0};
+
+            // Stage 2: Alignment and addition
+            if (exp_ab > exp_c) begin
+                exp_r <= exp_ab;
+                sum <= {sign_ab, frac_ab, 1'b0} + ({sign_c, frac_c, 3'b0} >> (exp_ab - exp_c));
+            end else begin
+                exp_r <= exp_c;
+                sum <= ({sign_ab, frac_ab, 1'b0} << (exp_c - exp_ab)) + {sign_c, frac_c, 3'b0};
+            end
+
+            // Stage 3: Normalization and rounding
+            if (sum[7] == sum[6]) begin
+                result <= {sum[7], exp_r[3:0], sum[5:3]};
+            end else if (sum[7]) begin
+                result <= {sum[7], exp_r[3:0] + 1'b1, sum[6:4]};
+            end else begin
+                result <= {sum[7], exp_r[3:0] - 1'b1, sum[4:2]};
+            end
+
+            // Handle special cases
+            if (exp_r == 5'b00000) begin
+                result <= 8'b0; // Underflow to zero
+            end else if (exp_r[4] || exp_r[3:0] == 4'b1111) begin
+                result <= {sum[7], 7'b1111000}; // Overflow to infinity
+            end
+        end
+    end
+endmodule
+
+module dot_unit (
+    input wire clk,
+    input wire rst,
+    input wire [1:0] state,
+    input wire [7:0] stream_in_w,
+    input wire stream_in_w_valid,
+    output wire [7:0] stream_out_e,
+    output wire [7:0] stream_out_w,
+    input wire [7:0] stream_in_e,
+    input wire stream_in_e_valid,
+    input wire [7:0] in_weight,
+    output wire [7:0] out_weight
+);
     localparam STATE_PASS = 0;
     localparam STATE_LOAD_WEIGHT = 1;
     localparam STATE_MUL = 2;
     localparam STATE_READ_SUM = 3;
 
+    reg [7:0] stream_w_pipe [3:0];
+    reg [7:0] stream_e_pipe [3:0];
+    reg [3:0] stream_w_valid_pipe, stream_e_valid_pipe;
+
+    reg [7:0] fma_a_pipe [2:0];
+    reg [7:0] fma_b_pipe [2:0];
+    reg [7:0] fma_c_pipe [2:0];
+    wire [7:0] fma_result;
+
     reg [7:0] weight;
-    reg [15:0] sum;
 
-    initial begin
-        weight = 0;
-        sum = 0;
-    end
+    reg [7:0] sum;
 
-    always @(posedge clk) begin
-        case (state)
-            STATE_PASS: begin
-                if (stream_in_w_valid) begin
-                    stream_out_w <= stream_in_w;
-                end
-                if (stream_in_e_valid) begin
-                    stream_out_e <= stream_in_e;
-                end
+    fp8_mul_add fma (
+        .clk(clk),
+        .rst(rst),
+        .a(fma_a_pipe[2]),
+        .b(fma_b_pipe[2]),
+        .c(fma_c_pipe[2]),
+        .result(fma_result)
+    );
+
+    integer i;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            for (i = 0; i < 4; i = i + 1) begin
+                stream_w_pipe[i] <= 8'b0;
+                stream_e_pipe[i] <= 8'b0;
+                stream_w_valid_pipe[i] <= 1'b0;
+                stream_e_valid_pipe[i] <= 1'b0;
             end
-            STATE_LOAD_WEIGHT: begin
-                if (stream_in_w_valid) begin
+            for (i = 0; i < 3; i = i + 1) begin
+                fma_a_pipe[i] <= 8'b0;
+                fma_b_pipe[i] <= 8'b0;
+                fma_c_pipe[i] <= 8'b0;
+            end
+            weight <= 8'b0;
+            sum <= 8'b0;
+        end else begin
+            // Shift pipeline registers
+            for (i = 3; i > 0; i = i - 1) begin
+                stream_w_pipe[i] <= stream_w_pipe[i-1];
+                stream_e_pipe[i] <= stream_e_pipe[i-1];
+                stream_w_valid_pipe[i] <= stream_w_valid_pipe[i-1];
+                stream_e_valid_pipe[i] <= stream_e_valid_pipe[i-1];
+            end
+            for (i = 2; i > 0; i = i - 1) begin
+                fma_a_pipe[i] <= fma_a_pipe[i-1];
+                fma_b_pipe[i] <= fma_b_pipe[i-1];
+                fma_c_pipe[i] <= fma_c_pipe[i-1];
+            end
+
+            // Input stage
+            stream_w_pipe[0] <= stream_in_w;
+            stream_e_pipe[0] <= stream_in_e;
+            stream_w_valid_pipe[0] <= stream_in_w_valid;
+            stream_e_valid_pipe[0] <= stream_in_e_valid;
+
+            case (state)
+                STATE_PASS: begin
+                    fma_a_pipe[0] <= 8'b0;
+                    fma_b_pipe[0] <= 8'b0;
+                    fma_c_pipe[0] <= 8'b0;
+                end
+                STATE_LOAD_WEIGHT: begin
                     weight <= stream_in_w;
+                    fma_a_pipe[0] <= 8'b0;
+                    fma_b_pipe[0] <= 8'b0;
+                    fma_c_pipe[0] <= 8'b0;
                 end
-                if (stream_in_e_valid) begin
-                    stream_out_e <= stream_in_e;
+                STATE_MUL: begin
+                    if (stream_in_w_valid) begin
+                        fma_a_pipe[0] <= stream_in_w;
+                        fma_b_pipe[0] <= in_weight;
+                        fma_c_pipe[0] <= sum;
+                        sum <= fma_result;
+                    end else begin
+                        fma_a_pipe[0] <= 8'b0;
+                        fma_b_pipe[0] <= 8'b0;
+                        fma_c_pipe[0] <= 8'b0;
+                    end
                 end
-            end
-            STATE_MUL: begin
-                if (stream_in_w_valid) begin
-                    sum <= sum + stream_in_w * in_weight;
-                    stream_out_w <= stream_in_w;
+                STATE_READ_SUM: begin
+                    sum <= 8'b0; // Reset sum for next operation
+                    fma_a_pipe[0] <= 8'b0;
+                    fma_b_pipe[0] <= 8'b0;
+                    fma_c_pipe[0] <= 8'b0;
                 end
-                if (stream_in_e_valid) begin
-                    stream_out_e <= stream_in_e;
-                end
-            end
-            STATE_READ_SUM: begin
-                stream_out_e <= sum;
-                if (stream_in_w_valid) begin
-                    stream_out_w <= stream_in_w;
-                end
-            end
-        endcase
+            endcase
+        end
     end
+
+    // Output assignments
+    assign stream_out_w = stream_w_pipe[3];
+    assign stream_out_e = (state == STATE_READ_SUM) ? sum : stream_e_pipe[3];
+    assign out_weight = weight;
+
 endmodule
 
 module dot_tile #(
@@ -588,47 +700,207 @@ endmodule
 
 // vector compute
 
+module fp8_add (
+    input wire clk,
+    input wire rst,
+    input wire [7:0] a,
+    input wire [7:0] b,
+    output reg [7:0] result
+);
+    reg [7:0] a_reg, b_reg;
+    reg sign_a, sign_b;
+    reg [3:0] exp_a, exp_b, exp_diff, larger_exp;
+    reg [4:0] frac_a, frac_b, aligned_frac_a, aligned_frac_b;
+    reg [5:0] sum;
+    reg sign_r;
+    reg [3:0] exp_r;
+    reg [2:0] frac_r;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            result <= 8'b0;
+            a_reg <= 8'b0;
+            b_reg <= 8'b0;
+        end else begin
+            // Stage 1: Input registration and exponent comparison
+            a_reg <= a;
+            b_reg <= b;
+            sign_a <= a[7];
+            sign_b <= b[7];
+            exp_a <= a[6:3];
+            exp_b <= b[6:3];
+            frac_a <= {1'b1, a[2:0], 1'b0};
+            frac_b <= {1'b1, b[2:0], 1'b0};
+            exp_diff <= (a[6:3] > b[6:3]) ? (a[6:3] - b[6:3]) : (b[6:3] - a[6:3]);
+            larger_exp <= (a[6:3] > b[6:3]) ? a[6:3] : b[6:3];
+
+            // Stage 2: Alignment and addition
+            if (exp_a > exp_b) begin
+                aligned_frac_a <= frac_a;
+                aligned_frac_b <= frac_b >> exp_diff;
+            end else begin
+                aligned_frac_a <= frac_a >> exp_diff;
+                aligned_frac_b <= frac_b;
+            end
+
+            if (sign_a == sign_b) begin
+                sum <= aligned_frac_a + aligned_frac_b;
+                sign_r <= sign_a;
+            end else if (aligned_frac_a > aligned_frac_b) begin
+                sum <= aligned_frac_a - aligned_frac_b;
+                sign_r <= sign_a;
+            end else begin
+                sum <= aligned_frac_b - aligned_frac_a;
+                sign_r <= sign_b;
+            end
+            exp_r <= larger_exp;
+
+            // Stage 3: Normalization and rounding
+            if (sum[5]) begin
+                frac_r <= sum[4:2];
+                exp_r <= exp_r + 1;
+            end else if (sum[4]) begin
+                frac_r <= sum[3:1];
+            end else if (sum[3]) begin
+                frac_r <= sum[2:0];
+                exp_r <= exp_r - 1;
+            end else begin
+                frac_r <= {sum[1:0], 1'b0};
+                exp_r <= exp_r - 2;
+            end
+
+            // Final result
+            if (exp_r == 4'b0000 && frac_r == 3'b000) begin
+                result <= 8'b0; // Zero
+            end else if (exp_r == 4'b1111) begin
+                result <= {sign_r, 7'b1111000}; // Infinity
+            end else begin
+                result <= {sign_r, exp_r, frac_r};
+            end
+        end
+    end
+endmodule
+
+module fp8_relu (
+    input wire clk,
+    input wire rst,
+    input wire [7:0] x,
+    output reg [7:0] result
+);
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            result <= 8'b0;
+        end else begin
+            result <= x[7] ? 8'b0 : x;
+        end
+    end
+endmodule
+
 module vec_unit (
-    input clk,
-    input [1:0] state,
-    input [7:0] stream_in_w,
-    input stream_in_valid_w,
+    input wire clk,
+    input wire rst,
+    input wire [2:0] state,
+    input wire [7:0] stream_in_w,
+    input wire stream_in_valid_w,
     output reg [7:0] stream_out_e,
-    input [7:0] stream_in_e,
-    input stream_in_valid_e,
+    input wire [7:0] stream_in_e,
+    input wire stream_in_valid_e,
     output reg [7:0] stream_out_w,
-    input [7:0] in_weight,
+    input wire [7:0] in_weight,
     output reg [7:0] out_weight
 );
-
     localparam STATE_PASS = 0;
-    localparam STATE_LOAD = 1;
-    localparam STATE_ADD = 2;
-    localparam STATE_REVERT = 3;
+    localparam STATE_REVERT = 1;
+    localparam STATE_LOAD = 2;
+    localparam STATE_ADD = 3;
+    localparam STATE_RELU = 4;
 
     reg [7:0] const_b;
-    reg [15:0] sum;
+    wire [7:0] add_result;
+    wire [7:0] relu_result;
 
-    always @(posedge clk) begin
-        case (state)
-            STATE_PASS: begin
-                stream_out_w <= stream_in_w;
-                stream_out_e <= stream_in_e;
+    fp8_add add (
+        .clk(clk),
+        .rst(rst),
+        .a(stream_in_e),
+        .b(const_b),
+        .result(add_result)
+    );
+
+    fp8_relu relu (
+        .clk(clk),
+        .rst(rst),
+        .x(stream_in_e),
+        .result(relu_result)
+    );
+
+    reg [7:0] stream_in_w_reg [2:0];
+    reg [7:0] stream_in_e_reg [2:0];
+    reg [2:0] state_reg [2:0];
+    reg stream_in_valid_w_reg [2:0];
+    reg stream_in_valid_e_reg [2:0];
+
+    integer i;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            const_b <= 8'b0;
+            stream_out_e <= 8'b0;
+            stream_out_w <= 8'b0;
+            out_weight <= 8'b0;
+            for (i = 0; i < 3; i = i + 1) begin
+                stream_in_w_reg[i] <= 8'b0;
+                stream_in_e_reg[i] <= 8'b0;
+                state_reg[i] <= 3'b0;
+                stream_in_valid_w_reg[i] <= 1'b0;
+                stream_in_valid_e_reg[i] <= 1'b0;
             end
-            STATE_LOAD: begin
-                if (stream_in_valid_w) begin
-                    const_b <= stream_in_w;
+        end else begin
+            // Shift pipeline registers
+            for (i = 2; i > 0; i = i - 1) begin
+                stream_in_w_reg[i] <= stream_in_w_reg[i-1];
+                stream_in_e_reg[i] <= stream_in_e_reg[i-1];
+                state_reg[i] <= state_reg[i-1];
+                stream_in_valid_w_reg[i] <= stream_in_valid_w_reg[i-1];
+                stream_in_valid_e_reg[i] <= stream_in_valid_e_reg[i-1];
+            end
+
+            // Input stage
+            stream_in_w_reg[0] <= stream_in_w;
+            stream_in_e_reg[0] <= stream_in_e;
+            state_reg[0] <= state;
+            stream_in_valid_w_reg[0] <= stream_in_valid_w;
+            stream_in_valid_e_reg[0] <= stream_in_valid_e;
+
+            // Output stage
+            case (state_reg[2])
+                STATE_PASS: begin
+                    stream_out_w <= stream_in_w_reg[2];
+                    stream_out_e <= stream_in_e_reg[2];
                 end
-            end
-            STATE_ADD: begin
-                if (stream_in_valid_e) begin
-                    stream_out_e <= stream_in_e + const_b;
+                STATE_REVERT: begin
+                    stream_out_e <= stream_in_w_reg[2];
                 end
-            end
-            STATE_REVERT: begin
-                stream_out_e <= stream_in_w;
-            end
-        endcase
+                STATE_LOAD: begin
+                    if (stream_in_valid_w_reg[2]) begin
+                        const_b <= stream_in_w_reg[2];
+                    end
+                end
+                STATE_ADD: begin
+                    if (stream_in_valid_e_reg[2]) begin
+                        stream_out_e <= add_result;
+                    end
+                end
+                STATE_RELU: begin
+                    if (stream_in_valid_e_reg[2]) begin
+                        stream_out_e <= relu_result;
+                    end
+                end
+                default: begin
+                    stream_out_w <= stream_in_w_reg[2];
+                    stream_out_e <= stream_in_e_reg[2];
+                end
+            endcase
+        end
     end
 endmodule
 
