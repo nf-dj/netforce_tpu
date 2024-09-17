@@ -700,102 +700,6 @@ endmodule
 
 // vector compute
 
-module fp8_add (
-    input wire clk,
-    input wire rst,
-    input wire [7:0] a,
-    input wire [7:0] b,
-    output reg [7:0] result
-);
-    reg [7:0] a_reg, b_reg;
-    reg sign_a, sign_b;
-    reg [3:0] exp_a, exp_b, exp_diff, larger_exp;
-    reg [4:0] frac_a, frac_b, aligned_frac_a, aligned_frac_b;
-    reg [5:0] sum;
-    reg sign_r;
-    reg [3:0] exp_r;
-    reg [2:0] frac_r;
-
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            result <= 8'b0;
-            a_reg <= 8'b0;
-            b_reg <= 8'b0;
-        end else begin
-            // Stage 1: Input registration and exponent comparison
-            a_reg <= a;
-            b_reg <= b;
-            sign_a <= a[7];
-            sign_b <= b[7];
-            exp_a <= a[6:3];
-            exp_b <= b[6:3];
-            frac_a <= {1'b1, a[2:0], 1'b0};
-            frac_b <= {1'b1, b[2:0], 1'b0};
-            exp_diff <= (a[6:3] > b[6:3]) ? (a[6:3] - b[6:3]) : (b[6:3] - a[6:3]);
-            larger_exp <= (a[6:3] > b[6:3]) ? a[6:3] : b[6:3];
-
-            // Stage 2: Alignment and addition
-            if (exp_a > exp_b) begin
-                aligned_frac_a <= frac_a;
-                aligned_frac_b <= frac_b >> exp_diff;
-            end else begin
-                aligned_frac_a <= frac_a >> exp_diff;
-                aligned_frac_b <= frac_b;
-            end
-
-            if (sign_a == sign_b) begin
-                sum <= aligned_frac_a + aligned_frac_b;
-                sign_r <= sign_a;
-            end else if (aligned_frac_a > aligned_frac_b) begin
-                sum <= aligned_frac_a - aligned_frac_b;
-                sign_r <= sign_a;
-            end else begin
-                sum <= aligned_frac_b - aligned_frac_a;
-                sign_r <= sign_b;
-            end
-            exp_r <= larger_exp;
-
-            // Stage 3: Normalization and rounding
-            if (sum[5]) begin
-                frac_r <= sum[4:2];
-                exp_r <= exp_r + 1;
-            end else if (sum[4]) begin
-                frac_r <= sum[3:1];
-            end else if (sum[3]) begin
-                frac_r <= sum[2:0];
-                exp_r <= exp_r - 1;
-            end else begin
-                frac_r <= {sum[1:0], 1'b0};
-                exp_r <= exp_r - 2;
-            end
-
-            // Final result
-            if (exp_r == 4'b0000 && frac_r == 3'b000) begin
-                result <= 8'b0; // Zero
-            end else if (exp_r == 4'b1111) begin
-                result <= {sign_r, 7'b1111000}; // Infinity
-            end else begin
-                result <= {sign_r, exp_r, frac_r};
-            end
-        end
-    end
-endmodule
-
-module fp8_relu (
-    input wire clk,
-    input wire rst,
-    input wire [7:0] x,
-    output reg [7:0] result
-);
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            result <= 8'b0;
-        end else begin
-            result <= x[7] ? 8'b0 : x;
-        end
-    end
-endmodule
-
 module vec_unit (
     input wire clk,
     input wire rst,
@@ -819,12 +723,12 @@ module vec_unit (
     wire [7:0] add_result;
     wire [7:0] relu_result;
 
-    fp8_add add (
-        .clk(clk),
-        .rst(rst),
+    fp8_e4m3_adder adder (
+        //.clk(clk),
+        //.rst(rst),
         .a(stream_in_e),
         .b(const_b),
-        .result(add_result)
+        .sum(add_result)
     );
 
     fp8_relu relu (
