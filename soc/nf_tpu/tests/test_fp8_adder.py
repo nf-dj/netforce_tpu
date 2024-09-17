@@ -16,7 +16,7 @@ def float_to_fp8_e4m3(value):
     exponent = int(math.floor(math.log2(value)))
     exponent_bias = exponent + 7  # Bias of -7
 
-    if exponent_bias < 1 or exponent_bias > 15:
+    if exponent_bias < 0 or exponent_bias > 15:
         raise ValueError(f"Exponent {exponent} out of range for FP8 E4M3.")
 
     # Compute fraction
@@ -52,18 +52,28 @@ async def test_fp8_e4m3_adder(dut):
 
     # Define test cases as a list of tuples (a_value, b_value, expected_sum)
     test_cases = [
-        (0.0, 0.0, 0.0),                # Test 0: Zero + Zero = Zero
-        (1.0, 1.5, 2.5),                # Test 1: Normalized + Normalized = Normalized
-        (1.0, -1.5, -0.5),              # Test 2: Normalized + Negative Normalized = Negative Normalized
-        (0.5, 0.25, 0.75),              # Test 3: Normalized + Normalized = Normalized
-        (-0.75, 0.25, -0.5),            # Test 4: Negative Normalized + Normalized = Negative Normalized
-        (1.0, 0.0, 1.0),                # Test 5: Normalized + Zero = Normalized
-        (3.75, -3.75, 0.0),             # Test 6: Max Normalized Cancellation = Zero
-        #(0.015625, 0.0078125, 0.0234375),# Test 7: Denormalized + Denormalized = Denormalized
-        #(-0.001953125, 0.001953125, 0.0),# Test 8: Negative Denormalized + Denormalized = Zero
-        (4.0, 3.0, 7.0),                 # Test 9: Normalized + Normalized = Normalized
-        (480.0, -480.0, 0.0),             # Test 10: Max Normalized Cancellation = Zero
+        (0.0, 0.0, 0.0),
+        (1.0, 1.5, 2.5),
+        (1.0, -1.5, -0.5),
+        (0.5, 0.25, 0.75),
+        (-0.75, 0.25, -0.5),
+        (1.0, 0.0, 1.0),
+        (3.75, -3.75, 0.0),
+        (4.0, 3.0, 7.0),
+        (480.0, -480.0, 0.0),
         (72, 16, 88),             
+        (256, 1, 256),             
+        (256, 16, 256),             
+        (256, 24, 256),             
+        (256, 32, 288),             
+        (256, -16, 240),             
+        (256, -8, 240),             
+        (256, -1, 240),             
+        (256, -0, 256),             
+        (0.015625,0,0.015625),
+        (0.015625,-0.015625,0),
+        (0.0078125,0,0.0078125),
+        (0.0078125,-0.0078125,0),
     ]
 
     #tolerance = 0.1  # Adjust tolerance as needed for FP8 precision
