@@ -77,7 +77,8 @@ async def test_fp8_e4m3_adder(dut):
         (480.0, -480.0, 0.0)             # Test 10: Max Normalized Cancellation = Zero
     ]
 
-    tolerance = 0.1  # Adjust tolerance as needed for FP8 precision
+    #tolerance = 0.1  # Adjust tolerance as needed for FP8 precision
+    tolerance = 0  # Adjust tolerance as needed for FP8 precision
 
     for idx, (a_value, b_value, expected) in enumerate(test_cases):
         # Convert to FP8 E4M3 format
