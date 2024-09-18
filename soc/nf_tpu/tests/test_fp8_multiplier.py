@@ -71,6 +71,9 @@ async def test_fp8_e4m3_multiplier(dut):
         (256.0, 0.25, 64.0),
         (256.0, 0.125, 32.0),
         (256.0, 0.0625, 16.0),
+        (448.0, -1, -448.0),
+        (448.0, 1, 448.0),
+        (0.015625, 0.5, 0),
     ]
 
     tolerance = 1e-6  # Adjust tolerance as needed for FP8 precision

@@ -77,6 +77,7 @@ async def test_fp8_e4m3_adder(dut):
         (0.0087890625,0.009765625,0.0107421875),
         (0.0087890625,0.015625,0.015625),
         (0.009765625,0.015625,0.017578125),
+        (448,1,448),
     ]
 
     #tolerance = 0.1  # Adjust tolerance as needed for FP8 precision
