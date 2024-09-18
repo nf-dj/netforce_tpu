@@ -90,3 +90,56 @@ module fp8_e4m3_adder(
 
 endmodule
 
+module fp8_e4m3_multiplier(
+    input [7:0] a,
+    input [7:0] b,
+    output [7:0] result
+);
+
+    wire sign_a, sign_b, sign_result;
+    wire [3:0] exponent_a, exponent_b;
+    wire [3:0] mantissa_a, mantissa_b;
+    wire [7:0] mantissa_product;
+    wire [3:0] exponent_result;
+    wire [2:0] mantissa_result;
+    wire is_zero, is_overflow;
+
+    // Extract components
+    assign sign_a = a[7];
+    assign sign_b = b[7];
+    assign exponent_a = a[6:3];
+    assign exponent_b = b[6:3];
+    assign mantissa_a = {1'b1, a[2:0]};  // Always treat as normal
+    assign mantissa_b = {1'b1, b[2:0]};  // Always treat as normal
+
+    // Compute sign
+    assign sign_result = sign_a ^ sign_b;
+
+    // Multiply mantissas
+    assign mantissa_product = mantissa_a * mantissa_b;
+
+    // Add exponents and subtract bias
+    wire [5:0] exponent_sum = {1'b0, exponent_a} + {1'b0, exponent_b} - 6'd7;
+
+    // Determine if result is zero or overflow
+    assign is_zero = (a == 8'b0) | (b == 8'b0);
+    assign is_overflow = exponent_sum >= 6'd15;
+
+    // Normalize and adjust exponent
+    wire normalize_shift = mantissa_product[7];
+    wire [5:0] exponent_adjusted = normalize_shift ? exponent_sum + 6'd1 : exponent_sum;
+
+    // Handle overflow, underflow, and normal cases
+    assign exponent_result = is_overflow ? 4'b1111 :
+                             exponent_adjusted[5] ? 4'b0000 :
+                             exponent_adjusted[3:0];
+
+    assign mantissa_result = is_overflow ? 3'b111 :
+                             normalize_shift ? mantissa_product[6:4] : mantissa_product[5:3];
+
+    // Assemble result
+    assign result = is_zero ? 8'b0 :
+                    is_overflow ? {sign_result, 4'b1111, 3'b111} :
+                    {sign_result, exponent_result, mantissa_result};
+
+endmodule
