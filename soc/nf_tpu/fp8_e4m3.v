@@ -190,7 +190,7 @@ module fp8_e4m3_fma(
 
 endmodule
 
-module fp8_e4m3_relu(
+module fp8_relu(
     input [7:0] a,
     output [7:0] result
 );

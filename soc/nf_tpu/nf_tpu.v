@@ -341,64 +341,6 @@ endmodule
 
 // dot product compute
 
-module fp8_mul_add (
-    input wire clk,
-    input wire rst,
-    input wire [7:0] a,
-    input wire [7:0] b,
-    input wire [7:0] c,
-    output reg [7:0] result
-);
-    reg [7:0] a_reg, b_reg, c_reg;
-    reg sign_ab, sign_c;
-    reg [4:0] exp_ab, exp_c, exp_r;
-    reg [6:0] frac_ab;
-    reg [4:0] frac_c, frac_r;
-    reg [7:0] sum;
-
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            result <= 8'b0;
-        end else begin
-            // Stage 1: Input registration and initial calculations
-            a_reg <= a;
-            b_reg <= b;
-            c_reg <= c;
-            sign_ab <= a[7] ^ b[7];
-            sign_c <= c[7];
-            exp_ab <= a[6:3] + b[6:3] - 4'b0111;
-            exp_c <= c[6:3];
-            frac_ab <= ({1'b1, a[2:0]} * {1'b1, b[2:0]});
-            frac_c <= {1'b1, c[2:0], 1'b0};
-
-            // Stage 2: Alignment and addition
-            if (exp_ab > exp_c) begin
-                exp_r <= exp_ab;
-                sum <= {sign_ab, frac_ab, 1'b0} + ({sign_c, frac_c, 3'b0} >> (exp_ab - exp_c));
-            end else begin
-                exp_r <= exp_c;
-                sum <= ({sign_ab, frac_ab, 1'b0} << (exp_c - exp_ab)) + {sign_c, frac_c, 3'b0};
-            end
-
-            // Stage 3: Normalization and rounding
-            if (sum[7] == sum[6]) begin
-                result <= {sum[7], exp_r[3:0], sum[5:3]};
-            end else if (sum[7]) begin
-                result <= {sum[7], exp_r[3:0] + 1'b1, sum[6:4]};
-            end else begin
-                result <= {sum[7], exp_r[3:0] - 1'b1, sum[4:2]};
-            end
-
-            // Handle special cases
-            if (exp_r == 5'b00000) begin
-                result <= 8'b0; // Underflow to zero
-            end else if (exp_r[4] || exp_r[3:0] == 4'b1111) begin
-                result <= {sum[7], 7'b1111000}; // Overflow to infinity
-            end
-        end
-    end
-endmodule
-
 module dot_unit (
     input wire clk,
     input wire rst,
@@ -430,9 +372,9 @@ module dot_unit (
 
     reg [7:0] sum;
 
-    fp8_mul_add fma (
-        .clk(clk),
-        .rst(rst),
+    fp8_e4m3_fma fma (
+        //.clk(clk),
+        //.rst(rst),
         .a(fma_a_pipe[2]),
         .b(fma_b_pipe[2]),
         .c(fma_c_pipe[2]),
@@ -732,9 +674,9 @@ module vec_unit (
     );
 
     fp8_relu relu (
-        .clk(clk),
-        .rst(rst),
-        .x(stream_in_e),
+        //.clk(clk),
+        //.rst(rst),
+        .a(stream_in_e),
         .result(relu_result)
     );
 
