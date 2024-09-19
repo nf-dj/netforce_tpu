@@ -696,6 +696,13 @@ endmodule
 
 // vector compute
 
+module int16_relu(
+    input wire signed [15:0] x,
+    output wire [15:0] y
+);
+    assign y = x[15] ? 16'b0 : x;
+endmodule
+
 module vec_unit (
     input wire clk,
     input wire rst,
