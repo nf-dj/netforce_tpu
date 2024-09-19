@@ -395,216 +395,83 @@ module fp4_fma(
     end
 endmodule
 
-module dot_unit (
+module dot_tile #(
+    parameter INS_WIDTH = 64,
+    parameter LAST_SUM = 1,
+),(
     input wire clk,
     input wire rst,
     input wire [1:0] state,
-    input wire [7:0] stream_in_w,
-    input wire stream_in_w_valid,
-    output wire [7:0] stream_out_e,
-    output wire [7:0] stream_out_w,
-    input wire [7:0] stream_in_e,
-    input wire stream_in_e_valid,
-    input wire [7:0] in_weight,
-    output wire [7:0] out_weight
-);
-    localparam STATE_PASS = 0;
-    localparam STATE_LOAD_WEIGHT = 1;
-    localparam STATE_MUL = 2;
-    localparam STATE_READ_SUM = 3;
-
-    reg [7:0] stream_w_pipe [3:0];
-    reg [7:0] stream_e_pipe [3:0];
-    reg [3:0] stream_w_valid_pipe, stream_e_valid_pipe;
-
-    reg [7:0] fma_a_pipe [2:0];
-    reg [7:0] fma_b_pipe [2:0];
-    reg [7:0] fma_c_pipe [2:0];
-    wire [7:0] fma_result;
-
-    reg [7:0] weight;
-
-    reg [7:0] sum;
-
-    fp8_e4m3_fma fma (
-        //.clk(clk),
-        //.rst(rst),
-        .a(fma_a_pipe[2]),
-        .b(fma_b_pipe[2]),
-        .c(fma_c_pipe[2]),
-        .result(fma_result)
-    );
-
-    integer i;
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            for (i = 0; i < 4; i = i + 1) begin
-                stream_w_pipe[i] <= 8'b0;
-                stream_e_pipe[i] <= 8'b0;
-                stream_w_valid_pipe[i] <= 1'b0;
-                stream_e_valid_pipe[i] <= 1'b0;
-            end
-            for (i = 0; i < 3; i = i + 1) begin
-                fma_a_pipe[i] <= 8'b0;
-                fma_b_pipe[i] <= 8'b0;
-                fma_c_pipe[i] <= 8'b0;
-            end
-            weight <= 8'b0;
-            sum <= 8'b0;
-        end else begin
-            // Shift pipeline registers
-            for (i = 3; i > 0; i = i - 1) begin
-                stream_w_pipe[i] <= stream_w_pipe[i-1];
-                stream_e_pipe[i] <= stream_e_pipe[i-1];
-                stream_w_valid_pipe[i] <= stream_w_valid_pipe[i-1];
-                stream_e_valid_pipe[i] <= stream_e_valid_pipe[i-1];
-            end
-            for (i = 2; i > 0; i = i - 1) begin
-                fma_a_pipe[i] <= fma_a_pipe[i-1];
-                fma_b_pipe[i] <= fma_b_pipe[i-1];
-                fma_c_pipe[i] <= fma_c_pipe[i-1];
-            end
-
-            // Input stage
-            stream_w_pipe[0] <= stream_in_w;
-            stream_e_pipe[0] <= stream_in_e;
-            stream_w_valid_pipe[0] <= stream_in_w_valid;
-            stream_e_valid_pipe[0] <= stream_in_e_valid;
-
-            case (state)
-                STATE_PASS: begin
-                    fma_a_pipe[0] <= 8'b0;
-                    fma_b_pipe[0] <= 8'b0;
-                    fma_c_pipe[0] <= 8'b0;
-                end
-                STATE_LOAD_WEIGHT: begin
-                    weight <= stream_in_w;
-                    fma_a_pipe[0] <= 8'b0;
-                    fma_b_pipe[0] <= 8'b0;
-                    fma_c_pipe[0] <= 8'b0;
-                end
-                STATE_MUL: begin
-                    if (stream_in_w_valid) begin
-                        fma_a_pipe[0] <= stream_in_w;
-                        fma_b_pipe[0] <= in_weight;
-                        fma_c_pipe[0] <= sum;
-                        sum <= fma_result;
-                    end else begin
-                        fma_a_pipe[0] <= 8'b0;
-                        fma_b_pipe[0] <= 8'b0;
-                        fma_c_pipe[0] <= 8'b0;
-                    end
-                end
-                STATE_READ_SUM: begin
-                    sum <= 8'b0; // Reset sum for next operation
-                    fma_a_pipe[0] <= 8'b0;
-                    fma_b_pipe[0] <= 8'b0;
-                    fma_c_pipe[0] <= 8'b0;
-                end
-            endcase
-        end
-    end
-
-    // Output assignments
-    assign stream_out_w = stream_w_pipe[3];
-    assign stream_out_e = (state == STATE_READ_SUM) ? sum : stream_e_pipe[3];
-    assign out_weight = weight;
-
-endmodule
-
-module dot_tile #(
-    parameter TILE_NO = 0,
-    parameter INS_WIDTH = 64,
-    parameter LANE_WIDTH = 32
-)(
-    input clk,
-    input [LANE_WIDTH-1:0] stream_in_w,
-    input stream_in_w_valid,
-    output [LANE_WIDTH-1:0] stream_out_e,
-    output reg stream_out_e_valid,
-    output [LANE_WIDTH-1:0] stream_out_w,
-    output reg stream_out_w_valid,
-    input [LANE_WIDTH-1:0] stream_in_e,
-    input stream_in_e_valid,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
-    output reg ins_out_valid
+    output reg ins_out_valid,
+    input wire [15:0] stream_in_e,
+    input wire stream_in_e_valid,
+    output reg [15:0] stream_out_w,
+    output reg stream_out_w_valid,
+    input wire [15:0] stream_in_w,
+    input wire stream_in_w_valid,
+    output reg [15:0] stream_out_e,
+    output reg stream_out_e_valid,
+    input wire [15:0] stream_in_n,
+    input wire stream_in_n_valid,
+    output reg [15:0] stream_out_s,
+    output reg stream_out_s_valid
 );
+    localparam STATE_LOAD_WEIGHT = 0;
+    localparam STATE_MUL = 1;
 
-    localparam STATE_PASS = 0;
-    localparam STATE_LOAD_WEIGHT = 1;
-    localparam STATE_MUL = 2;
-    localparam STATE_READ_SUM = 3;
+    localparam OP_LOAD_WEIGHT = 0;
+    localparam OP_MUL = 1;
 
-    localparam OP_PASS = 0;
-    localparam OP_LOAD_WEIGHT = 1;
-    localparam OP_MUL = 2;
-    localparam OP_READ_SUM = 3;
+    reg [7:0] weight;
+    wire [15:0] fma_result;
 
-    reg [1:0] state;
-    wire [7:0] weight_inter[4];
-
-    initial begin
-        state = STATE_PASS;
-        ins_out_valid = 0;
-        stream_out_e_valid = 0;
-        stream_out_w_valid = 0;
-    end
-
-    genvar i;
-    generate
-        for (i = 0; i < 4; i = i + 1) begin : dots
-            dot_unit unit (
-                .clk(clk),
-                .state(state),
-                .stream_in_w(stream_in_w[i*8+:8]),
-                .stream_in_w_valid(stream_in_w_valid),
-                .stream_out_e(stream_out_e[i*8+:8]),
-                .stream_out_w(stream_out_w[i*8+:8]),
-                .stream_in_e(stream_in_e[i*8+:8]),
-                .stream_in_e_valid(stream_in_e_valid),
-                .in_weight(i==0?in_weight:weight_inter[i-1]),
-                .out_weight(weight_inter[i])
-            );
-        end
-    endgenerate
+    fp4_fma fma (
+        .a(weight),
+        .b(stream_in_e[3:0]),
+        .c(stream_in_n),
+        .result(fma_result)
+    );
 
     always @(posedge clk) begin
         case (state)
-            STATE_PASS: begin
-                stream_out_w_valid <= stream_in_w_valid;
-                stream_out_e_valid <= stream_in_e_valid;
-            end
             STATE_LOAD_WEIGHT: begin
                 if (stream_in_w_valid) begin
+                    weight <= stream_in_w;
                     state <= STATE_PASS;
                 end
+                stream_out_e <= stream_in_e;
                 stream_out_e_valid <= stream_in_e_valid;
+                stream_out_s <= 0;
+                stream_out_s_valid <= 0;
             end
             STATE_MUL: begin
-                stream_out_w_valid <= stream_in_w_valid;
+                stream_out_e <= stream_in_e;
                 stream_out_e_valid <= stream_in_e_valid;
-            end
-            STATE_READ_SUM: begin
-                stream_out_w_valid <= stream_in_w_valid;
-                stream_out_e_valid <= 1;
-                state <= STATE_PASS;
+                if (LAST_SUM) begin
+                    stream_out_s <= 0;
+                    stream_out_s_valid <= 1;
+                    if (stream_in_n_valid && stream_in_e_valid) begin
+                        stream_out_e <= fma_result;
+                        stream_out_e_valid <= 1;
+                    end
+                end else begin
+                    if (stream_in_n_valid && stream_in_e_valid) begin
+                        stream_out_s <= fma_result;
+                        stream_out_s_valid <= 1;
+                    end
+                end
             end
         endcase
         if (ins_in_valid && ins_in[15:8]==TILE_NO) begin
             case (ins_in[23:16])
-                OP_PASS: begin
-                    state <= STATE_PASS;
-                end
                 OP_LOAD_WEIGHT: begin
                     state <= STATE_LOAD_WEIGHT;
                 end
                 OP_MUL: begin
                     state <= STATE_MUL;
-                end
-                OP_READ_SUM: begin
-                    state <= STATE_READ_SUM;
                 end
             endcase
             ins_out_valid <= 0;
