@@ -372,14 +372,13 @@ module fp4_fma(
         end else begin
             // Shift a_extended based on b_exp
             case(b_exp)
-                3'b000: shifted_a = a_extended;
-                3'b001: shifted_a = a_extended << 1;
-                3'b010: shifted_a = a_extended << 2;
-                3'b011: shifted_a = a_extended << 3;
-                3'b100: shifted_a = a_extended << 4;
-                3'b101: shifted_a = a_extended << 5;
-                3'b110: shifted_a = a_extended << 6;
-                3'b111: shifted_a = a_extended << 7;
+                3'b001: shifted_a = a_extended;
+                3'b010: shifted_a = a_extended << 1;
+                3'b011: shifted_a = a_extended << 2;
+                3'b100: shifted_a = a_extended << 3;
+                3'b101: shifted_a = a_extended << 4;
+                3'b110: shifted_a = a_extended << 5;
+                3'b111: shifted_a = a_extended << 6;
             endcase
 
             // Add or subtract based on b_sign
