@@ -341,6 +341,61 @@ endmodule
 
 // dot product compute
 
+module fp4_fma(
+    input [7:0] a,    // 8-bit input
+    input [3:0] b,    // 4-bit input (FP4 E3M0 format)
+    input [15:0] c,   // 16-bit input
+    output reg [15:0] result // 16-bit clamped output
+);
+    // Constants for 16-bit signed min and max values
+    localparam signed [15:0] MIN_VALUE = -16'sd32768;
+    localparam signed [15:0] MAX_VALUE = 16'sd32767;
+
+    // Extend the 8-bit input to 16 bits
+    wire signed [15:0] a_extended;
+    assign a_extended = {{8{a[7]}}, a};  // Sign extension
+
+    // Decode FP4 E3M0
+    wire b_sign;
+    wire [2:0] b_exp;
+
+    assign b_sign = b[3];
+    assign b_exp = b[2:0];
+
+    // Intermediate result (17 bits to detect overflow)
+    reg signed [16:0] intermediate_result;
+    reg signed [15:0] shifted_a;
+
+    always @(*) begin
+        if (b == 4'b0000) begin
+            intermediate_result = {1'b0, c};  // Pass through if b is zero
+        end else begin
+            // Shift a_extended based on b_exp
+            case(b_exp)
+                3'b000: shifted_a = a_extended;
+                3'b001: shifted_a = a_extended << 1;
+                3'b010: shifted_a = a_extended << 2;
+                3'b011: shifted_a = a_extended << 3;
+                3'b100: shifted_a = a_extended << 4;
+                3'b101: shifted_a = a_extended << 5;
+                3'b110: shifted_a = a_extended << 6;
+                3'b111: shifted_a = a_extended << 7;
+            endcase
+
+            // Add or subtract based on b_sign
+            intermediate_result = b_sign ? (c - shifted_a) : (c + shifted_a);
+        end
+
+        // Clamping logic
+        if (intermediate_result > MAX_VALUE)
+            result = MAX_VALUE;
+        else if (intermediate_result < MIN_VALUE)
+            result = MIN_VALUE;
+        else
+            result = intermediate_result[15:0];
+    end
+endmodule
+
 module dot_unit (
     input wire clk,
     input wire rst,
