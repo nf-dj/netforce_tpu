@@ -589,6 +589,7 @@ module dot_id #(
 
 endmodule
 
+// TODO: check this (synth)
 module dot_block #(
     parameter DATA_WIDTH = 128, // 16*8
     parameter NUM_TILES = 8,
@@ -602,7 +603,7 @@ module dot_block #(
     output [DATA_WIDTH-1:0] stream_out_e,
     output [NUM_TILES-1:0] stream_out_e_valid,
     input [INS_WIDTH-1:0] ins_in,
-    input ins_in_valid
+    input ins_in_valid,
 );
     wire [INS_WIDTH-1:0] ins_inter[0:NUM_SLICES-2];
     wire ins_valid_inter[0:NUM_SLICES-2];
@@ -681,14 +682,6 @@ module vec_unit (
     reg [7:0] const_b;
     wire [7:0] add_result;
     wire [7:0] relu_result;
-
-    fp8_e4m3_adder adder (
-        //.clk(clk),
-        //.rst(rst),
-        .a(stream_in_e),
-        .b(const_b),
-        .sum(add_result)
-    );
 
     fp8_relu relu (
         //.clk(clk),
