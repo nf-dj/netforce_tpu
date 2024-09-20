@@ -685,6 +685,16 @@ module vec_tile #(
     reg [3:0] scale_param;
     reg [8:0] add_param;
 
+	wire [15:0] relu_out;
+    wire [15:0] scaled_out;
+    wire [15:0] final_out;
+
+    assign relu_out = enable_relu ? (stream_in_e[15] ? 16'd0 : stream_in_e) : stream_in_e;
+
+    assign scaled_out = relu_out >> scale_param;
+
+    assign final_out = scaled_out + {{7{add_param[8]}}, add_param};
+
     initial begin
         state = STATE_PASS;
         enable_relu = 0;
@@ -712,15 +722,7 @@ module vec_tile #(
             end
             STATE_ACTIVE: begin
                 if (stream_in_valid_e) begin
-                    if (enable_relu) begin // XXX
-                        stream_out_e <= stream_in_e[15] ? 0 : stream_in_e;
-                    end
-                    if (scale_param) begin
-                        stream_out_e <= stream_in_e >> scale_param;
-                    end
-                    if (add_param) begin
-                        stream_out_e <= stream_out_e + add_param;
-                    end
+					stream_out_e <= final_out;
                     stream_out_valid_e <= 1;
                 end else begin
                     stream_out_valid_e <= 0;
@@ -750,8 +752,8 @@ module vec_tile #(
 endmodule
 
 module vec_slice #(
-    parameter DATA_WIDTH = 512,
-    parameter NUM_TILES = 16,
+    parameter DATA_WIDTH = 128, // 16*8
+    parameter NUM_TILES = 8,
     parameter INS_WIDTH = 64
 )(
     input clk,
@@ -777,13 +779,13 @@ module vec_slice #(
                 .TILE_NO(i)
             ) tile (
                 .clk(clk),
-                .stream_in_w(stream_in_w[i*32+:32]),
+                .stream_in_w(stream_in_w[i*16+:16]),
                 .stream_in_valid_w(stream_in_w_valid[i]),
-                .stream_out_e(stream_out_e[i*32+:32]),
+                .stream_out_e(stream_out_e[i*16+:16]),
                 .stream_out_valid_e(stream_out_e_valid[i]),
-                .stream_in_e(stream_in_e[i*32+:32]),
+                .stream_in_e(stream_in_e[i*16+:16]),
                 .stream_in_valid_e(stream_in_e_valid[i]),
-                .stream_out_w(stream_out_w[i*32+:32]),
+                .stream_out_w(stream_out_w[i*16+:16]),
                 .stream_out_valid_w(stream_out_w_valid[i]),
                 .ins_in(i==0?ins_in:ins_inter[i-1]),
                 .ins_in_valid(i==0?ins_in_valid:ins_valid_inter[i-1]),

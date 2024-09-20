@@ -3,7 +3,9 @@
 #module=fp4_fma
 #module=dot_tile
 #module=dot_slice
-module=dot_block
+#module=dot_block
+#module=vec_tile
+module=vec_slice
 
 # Create a temporary Yosys script
 cat << EOF > temp_script.ys
