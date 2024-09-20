@@ -33,7 +33,8 @@ module mem_tile #(
     localparam OP_WRITE_16 = 4;
     localparam OP_WRITE_8 = 5;
 
-    reg [15:0] bram[0:MEM_DEPTH-1];
+    (* ram_style = "block" *) reg [15:0] bram[0:MEM_DEPTH-1];
+
     reg [15:0] addr;
     reg [15:0] len;
     reg [7:0] state;
@@ -52,6 +53,22 @@ module mem_tile #(
         operation = OP_PASS;
         byte_counter = 0;
         nibble_counter = 0;
+    end
+
+    (* syn_ramstyle = "block_ram" *)
+    (* syn_implementation = "EBR" *)
+    always @(posedge clk) begin
+        if (state == STATE_WRITE_16 && stream_in_valid) begin
+            bram[addr] <= stream_in;
+        end else if (state == STATE_WRITE_8 && stream_in_valid && byte_counter == 1) begin
+            bram[addr] <= write_buffer;
+        end
+    end
+
+    always @(posedge clk) begin
+        if (state == STATE_READ_16 || state == STATE_READ_8 || state == STATE_READ_4) begin
+            read_buffer <= bram[addr];
+        end
     end
 
     always @(posedge clk) begin
@@ -100,7 +117,7 @@ module mem_tile #(
                 end
             end
             STATE_READ_16: begin
-                stream_out <= bram[addr];
+                stream_out <= read_buffer;
                 stream_out_valid <= 1;
                 if (len > 0) begin
                     addr <= addr + 1;
@@ -111,7 +128,6 @@ module mem_tile #(
             end
             STATE_READ_8: begin
                 if (byte_counter == 0) begin
-                    read_buffer <= bram[addr];
                     stream_out <= {8'b0, read_buffer[7:0]};
                     stream_out_valid <= 1;
                     byte_counter <= 1;
@@ -128,34 +144,37 @@ module mem_tile #(
                 end
             end
             STATE_READ_4: begin
-                if (nibble_counter == 0) begin
-                    read_buffer <= bram[addr];
-                    stream_out <= {12'b0, read_buffer[3:0]};
-                    stream_out_valid <= 1;
-                    nibble_counter <= 1;
-                end else if (nibble_counter == 1) begin
-                    stream_out <= {12'b0, read_buffer[7:4]};
-                    stream_out_valid <= 1;
-                    nibble_counter <= 2;
-                end else if (nibble_counter == 2) begin
-                    stream_out <= {12'b0, read_buffer[11:8]};
-                    stream_out_valid <= 1;
-                    nibble_counter <= 3;
-                end else begin
-                    stream_out <= {12'b0, read_buffer[15:12]};
-                    stream_out_valid <= 1;
-                    nibble_counter <= 0;
-                    addr <= addr + 1;
-                    if (len > 0) begin
-                        len <= len - 1;
-                    end else begin
-                        state <= STATE_IDLE;
+                case (nibble_counter)
+                    0: begin
+                        stream_out <= {12'b0, read_buffer[3:0]};
+                        stream_out_valid <= 1;
+                        nibble_counter <= 1;
                     end
-                end
+                    1: begin
+                        stream_out <= {12'b0, read_buffer[7:4]};
+                        stream_out_valid <= 1;
+                        nibble_counter <= 2;
+                    end
+                    2: begin
+                        stream_out <= {12'b0, read_buffer[11:8]};
+                        stream_out_valid <= 1;
+                        nibble_counter <= 3;
+                    end
+                    3: begin
+                        stream_out <= {12'b0, read_buffer[15:12]};
+                        stream_out_valid <= 1;
+                        nibble_counter <= 0;
+                        addr <= addr + 1;
+                        if (len > 0) begin
+                            len <= len - 1;
+                        end else begin
+                            state <= STATE_IDLE;
+                        end
+                    end
+                endcase
             end
             STATE_WRITE_16: begin
                 if (stream_in_valid) begin
-                    bram[addr] <= stream_in;
                     if (len > 0) begin
                         addr <= addr + 1;
                         len <= len - 1;
@@ -171,7 +190,6 @@ module mem_tile #(
                         byte_counter <= 1;
                     end else begin
                         write_buffer[15:8] <= stream_in[7:0];
-                        bram[addr] <= write_buffer;
                         byte_counter <= 0;
                         if (len > 0) begin
                             addr <= addr + 1;
