@@ -37,8 +37,8 @@ module mem_tile #(
 
     reg [15:0] addr;
     reg [15:0] len;
-    reg [7:0] state;
-    reg [7:0] operation;
+    reg [3:0] state;
+    reg [3:0] operation;
     reg byte_counter;
     reg [1:0] nibble_counter;
     reg [15:0] read_buffer;
@@ -205,9 +205,9 @@ module mem_tile #(
 endmodule
 
 module mem_slice #(
-    parameter NUM_TILES  = 7,   // 16*8=128
+    parameter NUM_TILES  = 8,   // 16*8=128
     parameter DATA_WIDTH = 128,
-    parameter INS_WIDTH  = 16
+    parameter INS_WIDTH  = 16,
 ) (
     input wire clk,
     input [DATA_WIDTH-1:0] stream_in_w,
@@ -221,7 +221,7 @@ module mem_slice #(
     input [INS_WIDTH-1:0] ins_in_w,
     input [INS_WIDTH-1:0] ins_in_e,
     input ins_in_valid_w,
-    input ins_in_valid_e
+    input ins_in_valid_e,
 );
 
     wire [INS_WIDTH-1:0] ins_inter_w[0:NUM_TILES-1];
@@ -233,7 +233,6 @@ module mem_slice #(
     genvar i;
     generate
         for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
-            // combine in 1?
             mem_tile #(
                 .TILE_NO(i)
             ) tile_w (
@@ -269,7 +268,8 @@ endmodule
 module mem_id #(
     parameter ID_NO_W  = 3,
     parameter ID_NO_E  = 4,
-    parameter INS_WIDTH = 64
+    parameter INS_WIDTH = 64,
+    parameter SLICE_INS_WIDTH = 16,
 )(
     input wire clk,
     input [INS_WIDTH-1:0] ins_in,
