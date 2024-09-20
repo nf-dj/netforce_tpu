@@ -198,20 +198,20 @@ endmodule
 
 module sw_tile #(
     parameter TILE_NO = 0,
-    parameter INS_WIDTH = 64
+    parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
-    input [31:0] stream_in,
+    input [15:0] stream_in,
     input stream_in_valid,
-    output reg [31:0] stream_out,
+    output reg [15:0] stream_out,
     output reg stream_out_valid,
-    input [31:0] data_in,
+    input [15:0] data_in,
     input data_in_valid,
-    output reg [31:0] data_out,
+    output reg [15:0] data_out,
     output reg data_out_valid,
-    input [INS_WIDTH-1:0] ins_in,
+    input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
-    output reg [INS_WIDTH-1:0] ins_out,
+    output reg [SLICE_INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid
 );
 
@@ -256,9 +256,9 @@ module sw_tile #(
 endmodule
 
 module sw_slice #(
-    parameter NUM_TILES = 16,  // 16*32=512
-    parameter DATA_WIDTH = 512,
-    parameter INS_WIDTH = 64
+    parameter NUM_TILES = 16,  // 16*8=128
+    parameter DATA_WIDTH = 128,
+    parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
     input [DATA_WIDTH-1:0] stream_in,
@@ -269,11 +269,11 @@ module sw_slice #(
     input data_in_valid,
     output [DATA_WIDTH-1:0] data_out,
     output data_out_valid,
-    input [INS_WIDTH-1:0] ins_in,
+    input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid
 );
 
-    wire [INS_WIDTH-1:0] ins_inter[NUM_TILES-1:0];
+    wire [SLICE_INS_WIDTH-1:0] ins_inter[NUM_TILES-1:0];
     wire ins_valid_inter[NUM_TILES-1:0];
     wire intermediate_or[NUM_TILES-1:0];
     wire tile_data_out_valid[NUM_TILES-1:0];
@@ -309,14 +309,15 @@ endmodule
 
 module sw_id #(
     parameter ID_NO  = 2,
-    parameter INS_WIDTH = 64
+    parameter INS_WIDTH = 64,
+    parameter SLICE_INS_WIDTH = 16,
 ) (
     input wire clk,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
-    output wire [INS_WIDTH-1:0] slice_ins_out,
+    output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
     output wire slice_ins_out_valid
 );
 
@@ -347,30 +348,25 @@ module fp4_fma(
     input [15:0] c,   // 16-bit input
     output reg [15:0] result // 16-bit clamped output
 );
-    // Constants for 16-bit signed min and max values
     localparam signed [15:0] MIN_VALUE = -16'sd32768;
     localparam signed [15:0] MAX_VALUE = 16'sd32767;
 
-    // Extend the 8-bit input to 16 bits
     wire signed [15:0] a_extended;
     assign a_extended = {{8{a[7]}}, a};  // Sign extension
 
-    // Decode FP4 E3M0
     wire b_sign;
     wire [2:0] b_exp;
 
     assign b_sign = b[3];
     assign b_exp = b[2:0];
 
-    // Intermediate result (17 bits to detect overflow)
     reg signed [16:0] intermediate_result;
     reg signed [15:0] shifted_a;
 
     always @(*) begin
         if (b == 4'b0000) begin
-            intermediate_result = {1'b0, c};  // Pass through if b is zero
+            intermediate_result = {1'b0, c};
         end else begin
-            // Shift a_extended based on b_exp
             if (b_exp == 3'b001) shifted_a = a_extended;
             else if (b_exp == 3'b010) shifted_a = a_extended << 1;
             else if (b_exp == 3'b011) shifted_a = a_extended << 2;
@@ -380,11 +376,9 @@ module fp4_fma(
             else if (b_exp == 3'b111) shifted_a = a_extended << 6;
             else shifted_a = a_extended;
 
-            // Add or subtract based on b_sign
             intermediate_result = b_sign ? (c - shifted_a) : (c + shifted_a);
         end
 
-        // Clamping logic
         if (intermediate_result > MAX_VALUE)
             result = MAX_VALUE;
         else if (intermediate_result < MIN_VALUE)
@@ -396,15 +390,15 @@ endmodule
 
 module dot_tile #(
     parameter TILE_NO = 0,
-    parameter INS_WIDTH = 64,
+    parameter SLICE_INS_WIDTH = 16,
     parameter IS_LAST_SUM = 1
 ) (
     input wire clk,
     input wire rst,
     input wire [1:0] state,
-    input [INS_WIDTH-1:0] ins_in,
+    input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
-    output reg [INS_WIDTH-1:0] ins_out,
+    output reg [SLICE_INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
     input wire [15:0] stream_in_e,
     input wire stream_in_e_valid,
@@ -491,8 +485,8 @@ module dot_tile #(
                 end
             end
         endcase
-        if (ins_in_valid && ins_in[15:8]==TILE_NO) begin
-            case (ins_in[23:16])
+        if (ins_in_valid && ins_in[7:0]==TILE_NO) begin
+            case (ins_in[15:8])
                 OP_LOAD_WEIGHT: begin
                     state <= STATE_LOAD_WEIGHT;
                 end
@@ -512,7 +506,7 @@ endmodule
 module dot_slice #(
     parameter DATA_WIDTH = 128, // 16*8
     parameter NUM_TILES = 8,
-    parameter INS_WIDTH = 64,
+    parameter SLICE_INS_WIDTH = 16,
     parameter LAST_TILE_NO = 0,
 )(
     input clk,
@@ -524,11 +518,11 @@ module dot_slice #(
     output [NUM_TILES-1:0] stream_out_w_valid,
     input [DATA_WIDTH-1:0] stream_in_e,
     input [NUM_TILES-1:0] stream_in_e_valid,
-    input [INS_WIDTH-1:0] ins_in,
+    input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid
 );
 
-    wire [INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
+    wire [SLICE_INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
     wire ins_valid_inter[0:NUM_TILES-1];
 
     genvar i;
@@ -559,7 +553,8 @@ endmodule
 
 module dot_id #(
     parameter ID_NO  = 6,
-    parameter INS_WIDTH = 64
+    parameter INS_WIDTH = 64,
+    parameter SLICE_INS_WIDTH = 16,
 )(
     input wire clk,
     input [INS_WIDTH-1:0] ins_in,
@@ -567,7 +562,7 @@ module dot_id #(
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
     output wire [INS_WIDTH-1:0] slice_ins_out,
-    output wire slice_ins_out_valid
+    output wire slice_ins_out_valid,
 );
 
     initial begin
@@ -655,7 +650,7 @@ endmodule
 
 module vec_tile #(
     parameter TILE_NO = 0,
-    parameter INS_WIDTH = 64
+    parameter SLICE_INS_WIDTH = 16,
 )(
     input clk,
     input [15:0] stream_in_w,
@@ -666,10 +661,10 @@ module vec_tile #(
     input stream_in_valid_e,
     output reg [15:0] stream_out_w,
     output reg stream_out_valid_w,
-    input [15:0] ins_in,
+    input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
-    output reg [15:0] ins_out,
-    output reg ins_out_valid
+    output reg [SLICE_INS_WIDTH-1:0] ins_out,
+    output reg ins_out_valid,
 );
 
     localparam STATE_PASS = 0;
@@ -685,7 +680,7 @@ module vec_tile #(
     reg [3:0] scale_param;
     reg [8:0] add_param;
 
-	wire [15:0] relu_out;
+    wire [15:0] relu_out;
     wire [15:0] scaled_out;
     wire [15:0] final_out;
 
@@ -722,7 +717,7 @@ module vec_tile #(
             end
             STATE_ACTIVE: begin
                 if (stream_in_valid_e) begin
-					stream_out_e <= final_out;
+                    stream_out_e <= final_out;
                     stream_out_valid_e <= 1;
                 end else begin
                     stream_out_valid_e <= 0;
@@ -751,10 +746,11 @@ module vec_tile #(
 
 endmodule
 
+// TODO: check this (synth)
 module vec_slice #(
     parameter DATA_WIDTH = 128, // 16*8
     parameter NUM_TILES = 8,
-    parameter INS_WIDTH = 64
+    parameter SLICE_INS_WIDTH = 16,
 )(
     input clk,
     input [DATA_WIDTH-1:0] stream_in_w,
@@ -765,11 +761,11 @@ module vec_slice #(
     input [NUM_TILES-1:0] stream_in_e_valid,
     output [DATA_WIDTH-1:0] stream_out_w,
     input [NUM_TILES-1:0] stream_out_w_valid,
-    input [INS_WIDTH-1:0] ins_in,
-    input ins_in_valid
+    input [SLICE_INS_WIDTH-1:0] ins_in,
+    input ins_in_valid,
 );
 
-    wire [INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
+    wire [SLICE_INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
     wire ins_valid_inter[0:NUM_TILES-1];
 
     genvar i;
@@ -799,14 +795,15 @@ endmodule
 
 module vec_id #(
     parameter ID_NO  = 5,
-    parameter INS_WIDTH = 64
+    parameter INS_WIDTH = 32
+    parameter SLICE_INS_WIDTH = 16,
 )(
     input wire clk,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
-    output wire [INS_WIDTH-1:0] slice_ins_out,
+    output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
     output wire slice_ins_out_valid
 );
 
@@ -1308,7 +1305,8 @@ module nf_tpu #(
     parameter DATA_WIDTH = 512,
     parameter STREAM_WIDTH = 64,
     parameter ADDR_WIDTH = 32,
-    parameter INS_WIDTH  = 64,
+    parameter INS_WIDTH = 64,
+    parameter SLICE_INS_WIDTH = 16,
     parameter NUM_TILES  = 16
 ) (
     input wire clk,
@@ -1346,7 +1344,7 @@ module nf_tpu #(
     wire [STREAM_WIDTH-1:0] stream_in;
     wire stream_in_valid;
     //wire io_out_valid;
-    wire [INS_WIDTH-1:0] slice_ins[0:7];
+    wire [SLICE_INS_WIDTH-1:0] slice_ins[0:7];
     wire slice_ins_valid[0:7];
     wire [DATA_WIDTH-1:0] stream_inter_w[0:5];
     wire [DATA_WIDTH-1:0] stream_inter_e[0:5];
