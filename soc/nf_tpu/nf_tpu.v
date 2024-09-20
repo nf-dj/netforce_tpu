@@ -309,8 +309,7 @@ module mem_slice #(
 endmodule
 
 module mem_id #(
-    parameter ID_NO_W  = 3,
-    parameter ID_NO_E  = 4,
+    parameter ID_NO  = 3,
     parameter INS_WIDTH = 64,
     parameter SLICE_INS_WIDTH = 16,
 )(
@@ -319,23 +318,19 @@ module mem_id #(
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
-    output wire [INS_WIDTH-1:0] slice_ins_out_w,
-    output wire [INS_WIDTH-1:0] slice_ins_out_e,
-    output wire slice_ins_out_valid_w,
-    output wire slice_ins_out_valid_e
+    output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
+    output wire slice_ins_out_valid,
 );
 
     initial begin
         ins_out_valid = 0;
     end
 
-    assign slice_ins_out_valid_w = ins_in_valid && ins_in[7:0] == ID_NO_W;
-    assign slice_ins_out_valid_e = ins_in_valid && ins_in[7:0] == ID_NO_E;
-    assign slice_ins_out_w = ins_in;
-    assign slice_ins_out_e = ins_in;
+    assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
+    assign slice_ins_out = ins_in[31:16];
 
     always @(posedge clk) begin
-        if (slice_ins_out_valid_w || slice_ins_out_valid_e) begin
+        if (slice_ins_out_valid) begin
             ins_out <= 0;
             ins_out_valid <= 0;
         end else begin
@@ -478,7 +473,7 @@ module sw_id #(
     end
 
     assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
-    assign slice_ins_out = ins_in;
+    assign slice_ins_out = ins_in[31:16];
 
     always @(posedge clk) begin
         if (slice_ins_out_valid) begin
@@ -671,7 +666,7 @@ module dot_slice #(
     input [DATA_WIDTH-1:0] stream_in_e,
     input [NUM_TILES-1:0] stream_in_e_valid,
     input [SLICE_INS_WIDTH-1:0] ins_in,
-    input ins_in_valid
+    input ins_in_valid,
 );
 
     wire [SLICE_INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
@@ -713,7 +708,7 @@ module dot_id #(
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
-    output wire [INS_WIDTH-1:0] slice_ins_out,
+    output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
     output wire slice_ins_out_valid,
 );
 
@@ -722,7 +717,7 @@ module dot_id #(
     end
 
     assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
-    assign slice_ins_out = ins_in;
+    assign slice_ins_out = ins_in[31:16];
 
     always @(posedge clk) begin
         if (slice_ins_out_valid) begin
@@ -964,7 +959,7 @@ module vec_id #(
     end
 
     assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
-    assign slice_ins_out = ins_in;
+    assign slice_ins_out = ins_in[31:16];
 
     always @(posedge clk) begin
         if (slice_ins_out_valid) begin
@@ -1575,8 +1570,7 @@ module nf_tpu #(
     );
 
     mem_id #(
-        .ID_NO_W(3),
-        .ID_NO_E(4)
+        .ID_NO(3),
     ) mem_id1 (
         .clk(clk),
         .ins_in(ins_inter[2]),
@@ -1606,8 +1600,7 @@ module nf_tpu #(
     );
 
     mem_id #(
-        .ID_NO_W(5),
-        .ID_NO_E(6)
+        .ID_NO(4),
     ) mem_id2 (
         .clk(clk),
         .ins_in(ins_inter[3]),
@@ -1637,7 +1630,7 @@ module nf_tpu #(
     );
 
     vec_id #(
-        .ID_NO(7)
+        .ID_NO(5)
     ) vec_id1 (
         .clk(clk),
         .ins_in(ins_inter[4]),
@@ -1663,7 +1656,7 @@ module nf_tpu #(
     );
 
     dot_id #(
-        .ID_NO(8)
+        .ID_NO(6)
     ) dot_id1 (
         .clk(clk),
         .ins_in(ins_inter[5]),
@@ -1689,7 +1682,7 @@ module nf_tpu #(
     );
 
     dot_id #(
-        .ID_NO(9)
+        .ID_NO(7)
     ) dot_id2 (
         .clk(clk),
         .ins_in(ins_inter[6]),
