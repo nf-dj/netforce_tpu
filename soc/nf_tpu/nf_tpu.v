@@ -18,8 +18,11 @@ module mem_tile #(
 );
 
     localparam STATE_PASS = 0;
-    localparam STATE_READ = 1;
-    localparam STATE_WRITE = 2;
+    localparam STATE_READ_16 = 1;
+    localparam STATE_READ_8 = 2;
+    localparam STATE_READ_4 = 3;
+    localparam STATE_WRITE_16 = 4;
+    localparam STATE_WRITE_8 = 5;
 
     localparam OP_PASS = 0;
     localparam OP_READ = 1;
@@ -285,13 +288,13 @@ module sw_slice #(
                 .TILE_NO(i)
             ) tile (
                 .clk(clk),
-                .stream_in(stream_in[i*32+:32]),
+                .stream_in(stream_in[i*16+:16]),
                 .stream_in_valid(stream_in_valid[i]),
-                .stream_out(stream_out[i*32+:32]),
+                .stream_out(stream_out[i*16+:16]),
                 .stream_out_valid(stream_out_valid[i]),
-                .data_in(data_in[i*32+:32]),
+                .data_in(data_in[i*16+:16]),
                 .data_in_valid(data_in_valid),
-                .data_out(data_out[i*32+:32]),
+                .data_out(data_out[i*16+:16]),
                 .data_out_valid(tile_data_out_valid[i]),
                 .ins_in(i == 0 ? ins_in : ins_inter[i-1]),
                 .ins_in_valid(i == 0 ? ins_in_valid : ins_valid_inter[i-1]),
