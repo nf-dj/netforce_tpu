@@ -1,15 +1,16 @@
 #!/bin/bash
 
+#module=fp4_fma
+#module=dot_tile
+#module=dot_slice
+module=dot_block
+
 # Create a temporary Yosys script
 cat << EOF > temp_script.ys
-#read_verilog ../fp8_e4m3.v
-#synth_ecp5 -top fp8_e4m3_pipelined_adder
-#read_verilog ../fp4_e3m0.v
-#synth_ecp5 -top fp4_e3m0_adder
-read_verilog ../bitnet.v
-synth_ecp5 -top bitnet_fma
+read_verilog ../nf_tpu.v
+synth_ecp5 -top $module
 stat
-show -format dot -prefix bitnet_fma_ecp5
+show -format dot -prefix ${module}_ecp5
 EOF
 
 # Run Yosys and capture the output
@@ -17,4 +18,4 @@ yosys -s temp_script.ys
 
 rm temp_script.ys
 
-dot -Tpdf bitnet_fma_ecp5.dot -o bitnet_fma_ecp5.pdf
+#dot -Tpdf ${module}_ecp5.dot -o ${module}_ecp5.pdf

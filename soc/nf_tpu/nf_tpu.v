@@ -197,7 +197,7 @@ endmodule
 // routing switch
 
 module sw_tile #(
-    parameter int TILE_NO = 0,
+    parameter TILE_NO = 0,
     parameter INS_WIDTH = 64
 ) (
     input wire clk,
@@ -256,7 +256,7 @@ module sw_tile #(
 endmodule
 
 module sw_slice #(
-    parameter int NUM_TILES = 16,  // 16*32=512
+    parameter NUM_TILES = 16,  // 16*32=512
     parameter DATA_WIDTH = 512,
     parameter INS_WIDTH = 64
 ) (
@@ -371,15 +371,14 @@ module fp4_fma(
             intermediate_result = {1'b0, c};  // Pass through if b is zero
         end else begin
             // Shift a_extended based on b_exp
-            case(b_exp)
-                3'b001: shifted_a = a_extended;
-                3'b010: shifted_a = a_extended << 1;
-                3'b011: shifted_a = a_extended << 2;
-                3'b100: shifted_a = a_extended << 3;
-                3'b101: shifted_a = a_extended << 4;
-                3'b110: shifted_a = a_extended << 5;
-                3'b111: shifted_a = a_extended << 6;
-            endcase
+            if (b_exp == 3'b001) shifted_a = a_extended;
+            else if (b_exp == 3'b010) shifted_a = a_extended << 1;
+            else if (b_exp == 3'b011) shifted_a = a_extended << 2;
+            else if (b_exp == 3'b100) shifted_a = a_extended << 3;
+            else if (b_exp == 3'b101) shifted_a = a_extended << 4;
+            else if (b_exp == 3'b110) shifted_a = a_extended << 5;
+            else if (b_exp == 3'b111) shifted_a = a_extended << 6;
+            else shifted_a = a_extended;
 
             // Add or subtract based on b_sign
             intermediate_result = b_sign ? (c - shifted_a) : (c + shifted_a);
@@ -396,9 +395,10 @@ module fp4_fma(
 endmodule
 
 module dot_tile #(
+    parameter TILE_NO = 0,
     parameter INS_WIDTH = 64,
-    parameter LAST_SUM = 1,
-),(
+    parameter IS_LAST_SUM = 1
+) (
     input wire clk,
     input wire rst,
     input wire [1:0] state,
@@ -419,11 +419,15 @@ module dot_tile #(
     output reg [15:0] stream_out_s,
     output reg stream_out_s_valid
 );
-    localparam STATE_LOAD_WEIGHT = 0;
-    localparam STATE_MUL = 1;
+    localparam STATE_PASS = 0;
+    localparam STATE_LOAD_WEIGHT = 1;
+    localparam STATE_LOAD_SUM = 2;
+    localparam STATE_MUL = 3;
 
-    localparam OP_LOAD_WEIGHT = 0;
-    localparam OP_MUL = 1;
+    localparam OP_PASS = 0;
+    localparam OP_LOAD_WEIGHT = 1;
+    localparam OP_LOAD_SUM = 2;
+    localparam OP_MUL = 3;
 
     reg [7:0] weight;
     wire [15:0] fma_result;
@@ -437,28 +441,50 @@ module dot_tile #(
 
     always @(posedge clk) begin
         case (state)
+            STATE_PASS: begin
+                stream_out_w <= stream_in_e;
+                stream_out_w_valid <= stream_in_e_valid;
+                stream_out_e <= stream_in_w;
+                stream_out_e_valid <= stream_in_w_valid;
+                stream_out_s <= 0;
+                stream_out_s_valid <= 0;
+            end
             STATE_LOAD_WEIGHT: begin
-                if (stream_in_w_valid) begin
-                    weight <= stream_in_w;
+                if (stream_in_e_valid) begin
+                    weight <= stream_in_e[7:0];
                     state <= STATE_PASS;
                 end
-                stream_out_e <= stream_in_e;
-                stream_out_e_valid <= stream_in_e_valid;
+                stream_out_w <= 0;
+                stream_out_w_valid <= 0;
+                stream_out_e <= stream_in_w;
+                stream_out_e_valid <= stream_in_w_valid;
+                stream_out_s <= 0;
+                stream_out_s_valid <= 0;
+            end
+            STATE_LOAD_SUM: begin
+                if (stream_in_e_valid) begin
+                    sum <= stream_in_e;
+                    state <= STATE_PASS;
+                end
+                stream_out_w <= 0;
+                stream_out_w_valid <= 0;
+                stream_out_e <= stream_in_w;
+                stream_out_e_valid <= stream_in_w_valid;
                 stream_out_s <= 0;
                 stream_out_s_valid <= 0;
             end
             STATE_MUL: begin
                 stream_out_e <= stream_in_e;
                 stream_out_e_valid <= stream_in_e_valid;
-                if (LAST_SUM) begin
-                    stream_out_s <= 0;
-                    stream_out_s_valid <= 1;
-                    if (stream_in_n_valid && stream_in_e_valid) begin
+                stream_out_s <= 0;
+                stream_out_s_valid <= 1;
+                if (IS_LAST_SUM) begin
+                    if (stream_in_e_valid) begin
                         stream_out_e <= fma_result;
                         stream_out_e_valid <= 1;
                     end
                 end else begin
-                    if (stream_in_n_valid && stream_in_e_valid) begin
+                    if (stream_in_e_valid) begin
                         stream_out_s <= fma_result;
                         stream_out_s_valid <= 1;
                     end
@@ -484,9 +510,10 @@ module dot_tile #(
 endmodule
 
 module dot_slice #(
-    parameter DATA_WIDTH = 512,
-    parameter NUM_TILES = 16,
-    parameter INS_WIDTH = 64
+    parameter DATA_WIDTH = 128, // 16*8
+    parameter NUM_TILES = 8,
+    parameter INS_WIDTH = 64,
+    parameter LAST_TILE_NO = 0,
 )(
     input clk,
     input [DATA_WIDTH-1:0] stream_in_w,
@@ -508,16 +535,17 @@ module dot_slice #(
     generate
         for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
             dot_tile #(
-                .TILE_NO(i)
+                .TILE_NO(i),
+                .IS_LAST_SUM(i==LAST_TILE_NO)
             ) tile (
                 .clk(clk),
-                .stream_in_w(stream_in_w[i*32+:32]),
+                .stream_in_w(stream_in_w[i*16+:16]),
                 .stream_in_w_valid(stream_in_w_valid[i]),
-                .stream_out_e(stream_out_e[i*32+:32]),
+                .stream_out_e(stream_out_e[i*16+:16]),
                 .stream_out_e_valid(stream_out_e_valid[i]),
-                .stream_out_w(stream_out_w[i*32+:32]),
+                .stream_out_w(stream_out_w[i*16+:16]),
                 .stream_out_w_valid(stream_out_w_valid[i]),
-                .stream_in_e(stream_in_e[i*32+:32]),
+                .stream_in_e(stream_in_e[i*16+:16]),
                 .stream_in_e_valid(stream_in_e_valid[i]),
                 .ins_in(i==0?ins_in:ins_inter[i-1]),
                 .ins_in_valid(i==0?ins_in_valid:ins_valid_inter[i-1]),
@@ -558,6 +586,67 @@ module dot_id #(
             ins_out_valid <= ins_in_valid;
         end
     end
+
+endmodule
+
+module dot_block #(
+    parameter DATA_WIDTH = 128, // 16*8
+    parameter NUM_TILES = 8,
+    parameter INS_WIDTH = 64,
+    parameter NUM_SLICES = 8,
+    parameter START_ID_NO = 8,
+)(
+    input clk,
+    input [DATA_WIDTH-1:0] stream_in_w,
+    input [NUM_TILES-1:0] stream_in_w_valid,
+    output [DATA_WIDTH-1:0] stream_out_e,
+    output [NUM_TILES-1:0] stream_out_e_valid,
+    input [INS_WIDTH-1:0] ins_in,
+    input ins_in_valid
+);
+    wire [INS_WIDTH-1:0] ins_inter[0:NUM_SLICES-2];
+    wire ins_valid_inter[0:NUM_SLICES-2];
+
+    wire [INS_WIDTH-1:0] slice_ins[0:NUM_SLICES-1];
+    wire slice_ins_valid[0:NUM_SLICES-1];
+
+    wire [DATA_WIDTH-1:0] stream_inter_w[0:NUM_SLICES-1];
+    wire [DATA_WIDTH-1:0] stream_inter_e[0:NUM_SLICES-1];
+    wire [NUM_TILES-1:0] stream_valid_inter_w[0:NUM_SLICES-1];
+    wire [NUM_TILES-1:0] stream_valid_inter_e[0:NUM_SLICES-1];
+
+    genvar i;
+    generate
+        for (i = 0; i < NUM_SLICES; i = i + 1) begin : slices
+            dot_id #(
+                .ID_NO(START_ID_NO+i)
+            ) id (
+                .clk(clk),
+                .ins_in(i==0?ins_in:ins_inter[i-1]),
+                .ins_in_valid(i==0?ins_in_valid:ins_valid_inter[i-1]),
+                .ins_out(ins_inter[i]),
+                .ins_out_valid(ins_valid_inter[i]),
+                .slice_ins_out(slice_ins[i]),
+                .slice_ins_out_valid(slice_ins_valid[i])
+            );
+
+            dot_slice #(
+                .LAST_TILE_NO(i)
+            ) slice (
+                .clk(clk),
+                .stream_in_w(i==0?stream_in_w:stream_inter_w[i-1]),
+                .stream_in_w_valid(i==0?stream_in_w_valid:stream_valid_inter_w[i-1]),
+                .stream_out_e(i==0?stream_out_e:stream_inter_e[i-1]),
+                .stream_out_e_valid(i==0?stream_out_e_valid:stream_valid_inter_e[i-1]),
+                .stream_out_w(stream_inter_w[i]),
+                .stream_out_w_valid(stream_inter_w_valid[i]),
+                .stream_in_e(stream_inter_e[i]),
+                .stream_in_e_valid(stream_inter_e_valid[i]),
+                .ins_in(slice_ins[i]),
+                .ins_in_valid(slice_ins_valid[i]),
+            );
+        end
+    endgenerate
 
 endmodule
 
