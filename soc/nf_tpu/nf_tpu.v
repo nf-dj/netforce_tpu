@@ -2,14 +2,13 @@
 
 module mem_tile #(
     parameter TILE_NO = 0,
-    parameter INS_WIDTH = 64,
-    parameter LANE_WIDTH = 32,
+    parameter INS_WIDTH = 16,
     parameter MEM_DEPTH = 1024
 ) (
     input wire clk,
-    input [LANE_WIDTH-1:0] stream_in,
+    input [15:0] stream_in,
     input stream_in_valid,
-    output reg [LANE_WIDTH-1:0] stream_out,
+    output reg [15:0] stream_out,
     output reg stream_out_valid,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
@@ -17,81 +16,169 @@ module mem_tile #(
     output reg ins_out_valid
 );
 
-    localparam STATE_PASS = 0;
-    localparam STATE_READ_16 = 1;
-    localparam STATE_READ_8 = 2;
-    localparam STATE_READ_4 = 3;
-    localparam STATE_WRITE_16 = 4;
-    localparam STATE_WRITE_8 = 5;
+    localparam STATE_IDLE = 0;
+    localparam STATE_WAIT_ADDR = 1;
+    localparam STATE_WAIT_LEN = 2;
+    localparam STATE_PASS = 3;
+    localparam STATE_READ_16 = 4;
+    localparam STATE_READ_8 = 5;
+    localparam STATE_READ_4 = 6;
+    localparam STATE_WRITE_16 = 7;
+    localparam STATE_WRITE_8 = 8;
 
     localparam OP_PASS = 0;
-    localparam OP_READ = 1;
-    localparam OP_WRITE = 2;
+    localparam OP_READ_16 = 1;
+    localparam OP_READ_8 = 2;
+    localparam OP_READ_4 = 3;
+    localparam OP_WRITE_16 = 4;
+    localparam OP_WRITE_8 = 5;
 
-    reg [LANE_WIDTH-1:0] bram[0:MEM_DEPTH-1];
+    reg [15:0] bram[0:MEM_DEPTH-1];
     reg [15:0] addr;
     reg [15:0] len;
     reg [7:0] state;
-    wire [7:0] ins_tile_no = ins_in[15:8];
-    wire [7:0] ins_op = ins_in[23:16];
-    wire [15:0] ins_addr = ins_in[39:24];
-    wire [15:0] ins_len = ins_in[55:40];
+    reg [7:0] operation;
+    reg byte_counter;
+    reg [1:0] nibble_counter;
+    reg [15:0] read_buffer;
+    reg [15:0] write_buffer;
 
     initial begin
-        state = STATE_PASS;
+        state = STATE_IDLE;
         ins_out_valid = 0;
         stream_out_valid = 0;
         len = 0;
+        addr = 0;
+        operation = OP_PASS;
+        byte_counter = 0;
+        nibble_counter = 0;
     end
 
     always @(posedge clk) begin
-        if (ins_in_valid && ins_in[15:8]==TILE_NO) begin
-            case (ins_in[23:16])
-                OP_PASS: begin
-                    state <= STATE_PASS;
-                    len <= 0;
-                    addr <= 0;
-                end
-                OP_READ: begin
-                    state <= STATE_READ;
-                    addr <= ins_in[39:24];
-                    len <= ins_in[55:40];
-                end
-                OP_WRITE: begin
-                    state <= STATE_WRITE;
-                    addr <= ins_in[39:24];
-                    len <= ins_in[55:40];
-                end
-            endcase
-            ins_out <= 0;
-            ins_out_valid <= 0;
-        end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
-        end
         case (state)
+            STATE_IDLE: begin
+                if (ins_in_valid && ins_in[7:0] == TILE_NO) begin
+                    operation <= ins_in[15:8];
+                    if (ins_in[15:8] == OP_PASS) begin
+                        state <= STATE_PASS;
+                    end else begin
+                        state <= STATE_WAIT_ADDR;
+                    end
+                    ins_out_valid <= 0;
+                end else begin
+                    ins_out <= ins_in;
+                    ins_out_valid <= ins_in_valid;
+                end
+                stream_out_valid <= 0;
+            end
+            STATE_WAIT_ADDR: begin
+                if (ins_in_valid) begin
+                    addr <= ins_in;
+                    state <= STATE_WAIT_LEN;
+                end
+            end
+            STATE_WAIT_LEN: begin
+                if (ins_in_valid) begin
+                    len <= ins_in;
+                    case (operation)
+                        OP_READ_16: state <= STATE_READ_16;
+                        OP_READ_8: state <= STATE_READ_8;
+                        OP_READ_4: state <= STATE_READ_4;
+                        OP_WRITE_16: state <= STATE_WRITE_16;
+                        OP_WRITE_8: state <= STATE_WRITE_8;
+                        default: state <= STATE_IDLE;
+                    endcase
+                    byte_counter <= 0;
+                    nibble_counter <= 0;
+                end
+            end
             STATE_PASS: begin
                 stream_out_valid <= stream_in_valid;
                 stream_out <= stream_in;
+                if (!ins_in_valid) begin
+                    state <= STATE_IDLE;
+                end
             end
-            STATE_READ: begin
+            STATE_READ_16: begin
                 stream_out <= bram[addr];
                 stream_out_valid <= 1;
                 if (len > 0) begin
                     addr <= addr + 1;
                     len <= len - 1;
                 end else begin
-                    state <= STATE_PASS;
+                    state <= STATE_IDLE;
                 end
             end
-            STATE_WRITE: begin
+            STATE_READ_8: begin
+                if (byte_counter == 0) begin
+                    read_buffer <= bram[addr];
+                    stream_out <= {8'b0, read_buffer[7:0]};
+                    stream_out_valid <= 1;
+                    byte_counter <= 1;
+                end else begin
+                    stream_out <= {8'b0, read_buffer[15:8]};
+                    stream_out_valid <= 1;
+                    byte_counter <= 0;
+                    addr <= addr + 1;
+                    if (len > 0) begin
+                        len <= len - 1;
+                    end else begin
+                        state <= STATE_IDLE;
+                    end
+                end
+            end
+            STATE_READ_4: begin
+                if (nibble_counter == 0) begin
+                    read_buffer <= bram[addr];
+                    stream_out <= {12'b0, read_buffer[3:0]};
+                    stream_out_valid <= 1;
+                    nibble_counter <= 1;
+                end else if (nibble_counter == 1) begin
+                    stream_out <= {12'b0, read_buffer[7:4]};
+                    stream_out_valid <= 1;
+                    nibble_counter <= 2;
+                end else if (nibble_counter == 2) begin
+                    stream_out <= {12'b0, read_buffer[11:8]};
+                    stream_out_valid <= 1;
+                    nibble_counter <= 3;
+                end else begin
+                    stream_out <= {12'b0, read_buffer[15:12]};
+                    stream_out_valid <= 1;
+                    nibble_counter <= 0;
+                    addr <= addr + 1;
+                    if (len > 0) begin
+                        len <= len - 1;
+                    end else begin
+                        state <= STATE_IDLE;
+                    end
+                end
+            end
+            STATE_WRITE_16: begin
                 if (stream_in_valid) begin
                     bram[addr] <= stream_in;
                     if (len > 0) begin
                         addr <= addr + 1;
                         len <= len - 1;
                     end else begin
-                        state <= STATE_PASS;
+                        state <= STATE_IDLE;
+                    end
+                end
+            end
+            STATE_WRITE_8: begin
+                if (stream_in_valid) begin
+                    if (byte_counter == 0) begin
+                        write_buffer[7:0] <= stream_in[7:0];
+                        byte_counter <= 1;
+                    end else begin
+                        write_buffer[15:8] <= stream_in[7:0];
+                        bram[addr] <= write_buffer;
+                        byte_counter <= 0;
+                        if (len > 0) begin
+                            addr <= addr + 1;
+                            len <= len - 1;
+                        end else begin
+                            state <= STATE_IDLE;
+                        end
                     end
                 end
             end
@@ -798,7 +885,7 @@ endmodule
 
 module vec_id #(
     parameter ID_NO  = 5,
-    parameter INS_WIDTH = 32
+    parameter INS_WIDTH = 32,
     parameter SLICE_INS_WIDTH = 16,
 )(
     input wire clk,
