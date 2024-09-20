@@ -653,168 +653,45 @@ endmodule
 
 // pointwise compute
 
-module int16_relu(
-    input wire signed [15:0] x,
-    output wire [15:0] y
-);
-    assign y = x[15] ? 16'b0 : x;
-endmodule
-
-module vec_unit (
-    input wire clk,
-    input wire rst,
-    input wire [2:0] state,
-    input wire [7:0] stream_in_w,
-    input wire stream_in_valid_w,
-    output reg [7:0] stream_out_e,
-    input wire [7:0] stream_in_e,
-    input wire stream_in_valid_e,
-    output reg [7:0] stream_out_w,
-    input wire [7:0] in_weight,
-    output reg [7:0] out_weight
-);
-    localparam STATE_PASS = 0;
-    localparam STATE_REVERT = 1;
-    localparam STATE_LOAD = 2;
-    localparam STATE_ADD = 3;
-    localparam STATE_RELU = 4;
-
-    reg [7:0] const_b;
-    wire [7:0] add_result;
-    wire [7:0] relu_result;
-
-    fp8_relu relu (
-        //.clk(clk),
-        //.rst(rst),
-        .a(stream_in_e),
-        .result(relu_result)
-    );
-
-    reg [7:0] stream_in_w_reg [2:0];
-    reg [7:0] stream_in_e_reg [2:0];
-    reg [2:0] state_reg [2:0];
-    reg stream_in_valid_w_reg [2:0];
-    reg stream_in_valid_e_reg [2:0];
-
-    integer i;
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            const_b <= 8'b0;
-            stream_out_e <= 8'b0;
-            stream_out_w <= 8'b0;
-            out_weight <= 8'b0;
-            for (i = 0; i < 3; i = i + 1) begin
-                stream_in_w_reg[i] <= 8'b0;
-                stream_in_e_reg[i] <= 8'b0;
-                state_reg[i] <= 3'b0;
-                stream_in_valid_w_reg[i] <= 1'b0;
-                stream_in_valid_e_reg[i] <= 1'b0;
-            end
-        end else begin
-            // Shift pipeline registers
-            for (i = 2; i > 0; i = i - 1) begin
-                stream_in_w_reg[i] <= stream_in_w_reg[i-1];
-                stream_in_e_reg[i] <= stream_in_e_reg[i-1];
-                state_reg[i] <= state_reg[i-1];
-                stream_in_valid_w_reg[i] <= stream_in_valid_w_reg[i-1];
-                stream_in_valid_e_reg[i] <= stream_in_valid_e_reg[i-1];
-            end
-
-            // Input stage
-            stream_in_w_reg[0] <= stream_in_w;
-            stream_in_e_reg[0] <= stream_in_e;
-            state_reg[0] <= state;
-            stream_in_valid_w_reg[0] <= stream_in_valid_w;
-            stream_in_valid_e_reg[0] <= stream_in_valid_e;
-
-            // Output stage
-            case (state_reg[2])
-                STATE_PASS: begin
-                    stream_out_w <= stream_in_w_reg[2];
-                    stream_out_e <= stream_in_e_reg[2];
-                end
-                STATE_REVERT: begin
-                    stream_out_e <= stream_in_w_reg[2];
-                end
-                STATE_LOAD: begin
-                    if (stream_in_valid_w_reg[2]) begin
-                        const_b <= stream_in_w_reg[2];
-                    end
-                end
-                STATE_ADD: begin
-                    if (stream_in_valid_e_reg[2]) begin
-                        stream_out_e <= add_result;
-                    end
-                end
-                STATE_RELU: begin
-                    if (stream_in_valid_e_reg[2]) begin
-                        stream_out_e <= relu_result;
-                    end
-                end
-                default: begin
-                    stream_out_w <= stream_in_w_reg[2];
-                    stream_out_e <= stream_in_e_reg[2];
-                end
-            endcase
-        end
-    end
-endmodule
-
 module vec_tile #(
     parameter TILE_NO = 0,
-    parameter INS_WIDTH = 64,
-    parameter LANE_WIDTH = 32
+    parameter INS_WIDTH = 64
 )(
     input clk,
-    input [LANE_WIDTH-1:0] stream_in_w,
+    input [15:0] stream_in_w,
     input stream_in_valid_w,
-    output reg [LANE_WIDTH-1:0] stream_out_e,
+    output reg [15:0] stream_out_e,
     output reg stream_out_valid_e,
-    input [LANE_WIDTH-1:0] stream_in_e,
+    input [15:0] stream_in_e,
     input stream_in_valid_e,
-    output reg [LANE_WIDTH-1:0] stream_out_w,
+    output reg [15:0] stream_out_w,
     output reg stream_out_valid_w,
-    input [INS_WIDTH-1:0] ins_in,
+    input [15:0] ins_in,
     input ins_in_valid,
-    output reg [INS_WIDTH-1:0] ins_out,
+    output reg [15:0] ins_out,
     output reg ins_out_valid
 );
 
     localparam STATE_PASS = 0;
     localparam STATE_LOAD = 1;
-    localparam STATE_ADD = 2;
-    localparam STATE_REVERT = 3;
+    localparam STATE_ACTIVE = 2;
 
     localparam OP_PASS = 0;
     localparam OP_LOAD = 1;
-    localparam OP_ADD = 2;
-    localparam OP_REVERT = 3;
+    localparam OP_ACTIVE = 2;
 
     reg [1:0] state;
-    wire [7:0] weight_inter[4];
+    reg [3:0] scale;
+    reg relu;
 
     initial begin
         state = STATE_PASS;
+        scale = 0;
+        relu = 0;
         ins_out_valid = 0;
         stream_out_valid_w = 0;
         stream_out_valid_e = 0;
     end
-
-    genvar i;
-    generate
-        for (i = 0; i < 4; i = i + 1) begin : dots
-            vec_unit unit (
-                .clk(clk),
-                .state(state),
-                .stream_in_w(stream_in_w[i*8+:8]),
-                .stream_in_valid_w(stream_in_valid_w),
-                .stream_out_e(stream_out_e[i*8+:8]),
-                .stream_in_e(stream_in_e[i*8+:8]),
-                .stream_in_valid_e(stream_in_valid_e),
-                .stream_out_w(stream_out_w[i*8+:8])
-            );
-        end
-    endgenerate
 
     always @(posedge clk) begin
         case (state)
@@ -823,16 +700,28 @@ module vec_tile #(
                 stream_out_valid_e <= stream_in_valid_e;
             end
             STATE_LOAD: begin
+                if (stream_in_valid_w) begin
+                    scale <= stream_in_w[3:0];
+                    relu <= stream_in_w[4];
+                end
                 stream_out_valid_w <= 0;
                 stream_out_valid_e <= stream_in_valid_e;
             end
-            STATE_ADD: begin
+            STATE_ACTIVE: begin
+                if (stream_in_valid_e) begin
+                    if (scale) begin
+                        stream_out_e <= stream_in_e >> scale;
+                    end else begin
+                        stream_out_e <= stream_in_e;
+                    end
+                    if (relu) begin
+                        stream_out_e <= stream_out_e[15] ? 0 : stream_out_e;
+                    end
+                    stream_out_valid_e <= 1;
+                end else begin
+                    stream_out_valid_e <= 0;
+                end
                 stream_out_valid_w <= stream_in_valid_w;
-                stream_out_valid_e <= stream_in_valid_e;
-            end
-            STATE_REVERT: begin
-                stream_out_valid_w <= 0;
-                stream_out_valid_e <= stream_in_valid_w;
             end
         endcase
         if (ins_in_valid && ins_in[15:8]==TILE_NO) begin
@@ -843,11 +732,8 @@ module vec_tile #(
                 OP_LOAD: begin
                     state <= STATE_LOAD;
                 end
-                OP_ADD: begin
-                    state <= STATE_ADD;
-                end
-                OP_REVERT: begin
-                    state <= STATE_REVERT;
+                OP_ACTIVE: begin
+                    state <= STATE_ACTIVE;
                 end
             endcase
             ins_out_valid <= 0;
