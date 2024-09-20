@@ -641,8 +641,8 @@ module dot_block #(
                 .stream_out_e_valid(i==0?stream_out_e_valid:stream_valid_inter_e[i-1]),
                 .stream_out_w(stream_inter_w[i]),
                 .stream_out_w_valid(stream_inter_w_valid[i]),
-                .stream_in_e(stream_inter_e[i]),
-                .stream_in_e_valid(stream_inter_e_valid[i]),
+                .stream_in_e(i<=NUM_SLICES-1?stream_inter_e[i]:0),
+                .stream_in_e_valid(i<=NUM_SLICES-1?stream_inter_e_valid[i]:0),
                 .ins_in(slice_ins[i]),
                 .ins_in_valid(slice_ins_valid[i]),
             );
@@ -651,7 +651,7 @@ module dot_block #(
 
 endmodule
 
-// vector compute
+// pointwise compute
 
 module int16_relu(
     input wire signed [15:0] x,
