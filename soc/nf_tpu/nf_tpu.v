@@ -681,13 +681,15 @@ module vec_tile #(
     localparam OP_ACTIVE = 2;
 
     reg [1:0] state;
-    reg [3:0] scale;
     reg relu;
+    reg [3:0] scale;
+    reg [15:0] add_const;
 
     initial begin
         state = STATE_PASS;
         scale = 0;
         relu = 0;
+        add_const = 0;
         ins_out_valid = 0;
         stream_out_valid_w = 0;
         stream_out_valid_e = 0;
@@ -701,21 +703,29 @@ module vec_tile #(
             end
             STATE_LOAD: begin
                 if (stream_in_valid_w) begin
-                    scale <= stream_in_w[3:0];
-                    relu <= stream_in_w[4];
+                    relu <= stream_in_w[0];
+                    scale <= stream_in_w[4:1];
+                end
+                stream_out_valid_w <= 0;
+                stream_out_valid_e <= stream_in_valid_e;
+            end
+            STATE_LOAD_ADD: begin
+                if (stream_in_valid_w) begin
+                    add_const <= stream_in_w;
                 end
                 stream_out_valid_w <= 0;
                 stream_out_valid_e <= stream_in_valid_e;
             end
             STATE_ACTIVE: begin
                 if (stream_in_valid_e) begin
-                    if (scale) begin
-                        stream_out_e <= stream_in_e >> scale;
-                    end else begin
-                        stream_out_e <= stream_in_e;
-                    end
                     if (relu) begin
                         stream_out_e <= stream_out_e[15] ? 0 : stream_out_e;
+                    end
+                    if (scale) begin
+                        stream_out_e <= stream_in_e >> scale;
+                    end
+                    if (add_const) begin
+                        stream_out_e <= stream_out_e + add_const;
                     end
                     stream_out_valid_e <= 1;
                 end else begin
