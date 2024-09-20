@@ -205,9 +205,9 @@ module mem_tile #(
 endmodule
 
 module mem_slice #(
-    parameter NUM_TILES  = 16,   // 16*32=512
-    parameter DATA_WIDTH = 512,
-    parameter INS_WIDTH  = 64
+    parameter NUM_TILES  = 7,   // 16*8=128
+    parameter DATA_WIDTH = 128,
+    parameter INS_WIDTH  = 16
 ) (
     input wire clk,
     input [DATA_WIDTH-1:0] stream_in_w,
@@ -233,13 +233,14 @@ module mem_slice #(
     genvar i;
     generate
         for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
+            // combine in 1?
             mem_tile #(
                 .TILE_NO(i)
             ) tile_w (
                 .clk(clk),
-                .stream_in(stream_in_w[i*32+:32]),
+                .stream_in(stream_in_w[i*16+:16]),
                 .stream_in_valid(stream_in_w_valid[i]),
-                .stream_out(stream_out_w[i*32+:32]),
+                .stream_out(stream_out_w[i*16+:16]),
                 .stream_out_valid(stream_out_w_valid[i]),
                 .ins_in(i == 0 ? ins_in_w : ins_inter_w[i-1]),
                 .ins_in_valid(i == 0 ? ins_in_valid_w : ins_valid_inter_w[i-1]),
@@ -251,9 +252,9 @@ module mem_slice #(
                 .TILE_NO(i)
             ) tile_e (
                 .clk(clk),
-                .stream_in(stream_in_e[i*32+:32]),
+                .stream_in(stream_in_e[i*16+:16]),
                 .stream_in_valid(stream_in_e_valid[i]),
-                .stream_out(stream_out_e[i*32+:32]),
+                .stream_out(stream_out_e[i*16+:16]),
                 .stream_out_valid(stream_out_e_valid[i]),
                 .ins_in(i == 0 ? ins_in_e : ins_inter_e[i-1]),
                 .ins_in_valid(i == 0 ? ins_in_valid_e : ins_valid_inter_e[i-1]),
