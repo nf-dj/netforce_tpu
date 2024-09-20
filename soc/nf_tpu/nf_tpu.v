@@ -1,15 +1,20 @@
 // internal memory
 
+// XXX: check synth
 module mem_tile #(
     parameter TILE_NO = 0,
     parameter INS_WIDTH = 16,
     parameter MEM_DEPTH = 1024
 ) (
     input wire clk,
-    input [15:0] stream_in,
-    input stream_in_valid,
-    output reg [15:0] stream_out,
-    output reg stream_out_valid,
+    input [15:0] stream_in_w,
+    input stream_in_w_valid,
+    output reg [15:0] stream_out_w,
+    output reg stream_out_w_valid,
+    input [15:0] stream_in_e,
+    input stream_in_e_valid,
+    output reg [15:0] stream_out_e,
+    output reg stream_out_e_valid,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
@@ -33,8 +38,12 @@ module mem_tile #(
     localparam OP_WRITE_16 = 4;
     localparam OP_WRITE_8 = 5;
 
+    localparam DIR_W = 0;
+    localparam DIR_E = 1;
+
     (* ram_style = "block" *) reg [15:0] bram[0:MEM_DEPTH-1];
 
+    reg dir;
     reg [15:0] addr;
     reg [15:0] len;
     reg [3:0] state;
@@ -44,10 +53,21 @@ module mem_tile #(
     reg [15:0] read_buffer;
     reg [15:0] write_buffer;
 
+    wire stream_out_valid;
+    wire [15:0] stream_out;
+    wire stream_in_valid;
+    wire [15:0] stream_in;
+
+    assign stream_out_valid = dir ? stream_out_e_valid : stream_out_w_valid;
+    assign stream_out = dir ? stream_out_e : stream_out_w;
+    assign stream_in_valid = dir ? stream_in_e_valid : stream_in_w_valid;
+    assign stream_in = dir ? stream_in_e : stream_in_w;
+
     initial begin
         state = STATE_IDLE;
         ins_out_valid = 0;
-        stream_out_valid = 0;
+        stream_out_w_valid = 0;
+        stream_out_e_valid = 0;
         len = 0;
         addr = 0;
         operation = OP_PASS;
@@ -76,6 +96,7 @@ module mem_tile #(
             STATE_IDLE: begin
                 if (ins_in_valid && ins_in[7:0] == TILE_NO) begin
                     operation <= ins_in[15:8];
+                    dir <= ins_in[16];
                     if (ins_in[15:8] == OP_PASS) begin
                         state <= STATE_PASS;
                     end else begin
@@ -86,7 +107,8 @@ module mem_tile #(
                     ins_out <= ins_in;
                     ins_out_valid <= ins_in_valid;
                 end
-                stream_out_valid <= 0;
+                stream_out_w_valid <= 0;
+                stream_out_e_valid <= 0;
             end
             STATE_WAIT_ADDR: begin
                 if (ins_in_valid) begin
@@ -110,8 +132,10 @@ module mem_tile #(
                 end
             end
             STATE_PASS: begin
-                stream_out_valid <= stream_in_valid;
-                stream_out <= stream_in;
+                stream_out_w_valid <= stream_in_w_valid;
+                stream_out_w <= stream_in_w;
+                stream_out_e_valid <= stream_in_e_valid;
+                stream_out_e <= stream_in_e;
                 if (!ins_in_valid) begin
                     state <= STATE_IDLE;
                 end
@@ -212,12 +236,12 @@ module mem_slice #(
     input wire clk,
     input [DATA_WIDTH-1:0] stream_in_w,
     input [NUM_TILES-1:0] stream_in_w_valid,
-    output [DATA_WIDTH-1:0] stream_out_e,
-    output [NUM_TILES-1:0] stream_out_e_valid,
-    input [DATA_WIDTH-1:0] stream_in_e,
-    input [NUM_TILES-1:0] stream_in_e_valid,
     output [DATA_WIDTH-1:0] stream_out_w,
     output [NUM_TILES-1:0] stream_out_w_valid,
+    input [DATA_WIDTH-1:0] stream_in_e,
+    input [NUM_TILES-1:0] stream_in_e_valid,
+    output [DATA_WIDTH-1:0] stream_out_e,
+    output [NUM_TILES-1:0] stream_out_e_valid,
     input [INS_WIDTH-1:0] ins_in_w,
     input [INS_WIDTH-1:0] ins_in_e,
     input ins_in_valid_w,
@@ -235,30 +259,20 @@ module mem_slice #(
         for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
             mem_tile #(
                 .TILE_NO(i)
-            ) tile_w (
+            ) tile (
                 .clk(clk),
-                .stream_in(stream_in_w[i*16+:16]),
-                .stream_in_valid(stream_in_w_valid[i]),
-                .stream_out(stream_out_w[i*16+:16]),
-                .stream_out_valid(stream_out_w_valid[i]),
+                .stream_in_w(stream_in_w[i*16+:16]),
+                .stream_in_w_valid(stream_in_w_valid[i]),
+                .stream_out_w(stream_out_w[i*16+:16]),
+                .stream_out_w_valid(stream_out_w_valid[i]),
+                .stream_in_e(stream_in_e[i*16+:16]),
+                .stream_in_e_valid(stream_in_e_valid[i]),
+                .stream_out_e(stream_out_e[i*16+:16]),
+                .stream_out_e_valid(stream_out_e_valid[i]),
                 .ins_in(i == 0 ? ins_in_w : ins_inter_w[i-1]),
                 .ins_in_valid(i == 0 ? ins_in_valid_w : ins_valid_inter_w[i-1]),
                 .ins_out(ins_inter_w[i]),
                 .ins_out_valid(ins_valid_inter_w[i])
-            );
-
-            mem_tile #(
-                .TILE_NO(i)
-            ) tile_e (
-                .clk(clk),
-                .stream_in(stream_in_e[i*16+:16]),
-                .stream_in_valid(stream_in_e_valid[i]),
-                .stream_out(stream_out_e[i*16+:16]),
-                .stream_out_valid(stream_out_e_valid[i]),
-                .ins_in(i == 0 ? ins_in_e : ins_inter_e[i-1]),
-                .ins_in_valid(i == 0 ? ins_in_valid_e : ins_valid_inter_e[i-1]),
-                .ins_out(ins_inter_e[i]),
-                .ins_out_valid(ins_valid_inter_e[i])
             );
         end
     endgenerate
