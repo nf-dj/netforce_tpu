@@ -681,15 +681,15 @@ module vec_tile #(
     localparam OP_ACTIVE = 2;
 
     reg [1:0] state;
-    reg relu;
-    reg [3:0] scale;
-    reg [15:0] add_const;
+    reg enable_relu;
+    reg [3:0] scale_param;
+    reg [8:0] add_param;
 
     initial begin
         state = STATE_PASS;
-        scale = 0;
-        relu = 0;
-        add_const = 0;
+        enable_relu = 0;
+        scale_param = 0;
+        add_param = 0;
         ins_out_valid = 0;
         stream_out_valid_w = 0;
         stream_out_valid_e = 0;
@@ -703,29 +703,23 @@ module vec_tile #(
             end
             STATE_LOAD: begin
                 if (stream_in_valid_w) begin
-                    relu <= stream_in_w[0];
-                    scale <= stream_in_w[4:1];
-                end
-                stream_out_valid_w <= 0;
-                stream_out_valid_e <= stream_in_valid_e;
-            end
-            STATE_LOAD_ADD: begin
-                if (stream_in_valid_w) begin
-                    add_const <= stream_in_w;
+                    enable_relu <= stream_in_w[0];
+                    scale_param <= stream_in_w[7:4];
+                    add_param <= stream_in_w[15:8];
                 end
                 stream_out_valid_w <= 0;
                 stream_out_valid_e <= stream_in_valid_e;
             end
             STATE_ACTIVE: begin
                 if (stream_in_valid_e) begin
-                    if (relu) begin
-                        stream_out_e <= stream_out_e[15] ? 0 : stream_out_e;
+                    if (enable_relu) begin // XXX
+                        stream_out_e <= stream_in_e[15] ? 0 : stream_in_e;
                     end
-                    if (scale) begin
-                        stream_out_e <= stream_in_e >> scale;
+                    if (scale_param) begin
+                        stream_out_e <= stream_in_e >> scale_param;
                     end
-                    if (add_const) begin
-                        stream_out_e <= stream_out_e + add_const;
+                    if (add_param) begin
+                        stream_out_e <= stream_out_e + add_param;
                     end
                     stream_out_valid_e <= 1;
                 end else begin
