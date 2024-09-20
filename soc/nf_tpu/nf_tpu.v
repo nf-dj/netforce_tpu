@@ -1,10 +1,9 @@
 // internal memory
 
-// XXX: check synth
 module mem_tile #(
     parameter TILE_NO = 0,
     parameter INS_WIDTH = 16,
-    parameter MEM_DEPTH = 1024
+    parameter MEM_DEPTH = 1024*2,
 ) (
     input wire clk,
     input [15:0] stream_in_w,
@@ -38,30 +37,23 @@ module mem_tile #(
     localparam OP_WRITE_16 = 4;
     localparam OP_WRITE_8 = 5;
 
-    localparam DIR_W = 0;
-    localparam DIR_E = 1;
-
     (* ram_style = "block" *) reg [15:0] bram[0:MEM_DEPTH-1];
 
     reg dir;
     reg [15:0] addr;
     reg [15:0] len;
     reg [3:0] state;
-    reg [3:0] operation;
+    reg [2:0] operation;
     reg byte_counter;
     reg [1:0] nibble_counter;
     reg [15:0] read_buffer;
     reg [15:0] write_buffer;
 
-    wire stream_out_valid;
-    wire [15:0] stream_out;
-    wire stream_in_valid;
     wire [15:0] stream_in;
+    wire stream_in_valid;
 
-    assign stream_out_valid = dir ? stream_out_e_valid : stream_out_w_valid;
-    assign stream_out = dir ? stream_out_e : stream_out_w;
-    assign stream_in_valid = dir ? stream_in_e_valid : stream_in_w_valid;
     assign stream_in = dir ? stream_in_e : stream_in_w;
+    assign stream_in_valid = dir ? stream_in_e_valid : stream_in_w_valid;
 
     initial begin
         state = STATE_IDLE;
@@ -92,12 +84,15 @@ module mem_tile #(
     end
 
     always @(posedge clk) begin
+        stream_out_w_valid <= 0;
+        stream_out_e_valid <= 0;
+
         case (state)
             STATE_IDLE: begin
                 if (ins_in_valid && ins_in[7:0] == TILE_NO) begin
-                    operation <= ins_in[15:8];
-                    dir <= ins_in[16];
-                    if (ins_in[15:8] == OP_PASS) begin
+                    operation <= ins_in[14:12];
+                    dir <= ins_in[15];
+                    if (ins_in[14:12] == OP_PASS) begin
                         state <= STATE_PASS;
                     end else begin
                         state <= STATE_WAIT_ADDR;
@@ -107,8 +102,6 @@ module mem_tile #(
                     ins_out <= ins_in;
                     ins_out_valid <= ins_in_valid;
                 end
-                stream_out_w_valid <= 0;
-                stream_out_e_valid <= 0;
             end
             STATE_WAIT_ADDR: begin
                 if (ins_in_valid) begin
@@ -141,8 +134,13 @@ module mem_tile #(
                 end
             end
             STATE_READ_16: begin
-                stream_out <= read_buffer;
-                stream_out_valid <= 1;
+                if (dir) begin
+                    stream_out_e <= read_buffer;
+                    stream_out_e_valid <= 1;
+                end else begin
+                    stream_out_w <= read_buffer;
+                    stream_out_w_valid <= 1;
+                end
                 if (len > 0) begin
                     addr <= addr + 1;
                     len <= len - 1;
@@ -152,12 +150,22 @@ module mem_tile #(
             end
             STATE_READ_8: begin
                 if (byte_counter == 0) begin
-                    stream_out <= {8'b0, read_buffer[7:0]};
-                    stream_out_valid <= 1;
+                    if (dir) begin
+                        stream_out_e <= {8'b0, read_buffer[7:0]};
+                        stream_out_e_valid <= 1;
+                    end else begin
+                        stream_out_w <= {8'b0, read_buffer[7:0]};
+                        stream_out_w_valid <= 1;
+                    end
                     byte_counter <= 1;
                 end else begin
-                    stream_out <= {8'b0, read_buffer[15:8]};
-                    stream_out_valid <= 1;
+                    if (dir) begin
+                        stream_out_e <= {8'b0, read_buffer[15:8]};
+                        stream_out_e_valid <= 1;
+                    end else begin
+                        stream_out_w <= {8'b0, read_buffer[15:8]};
+                        stream_out_w_valid <= 1;
+                    end
                     byte_counter <= 0;
                     addr <= addr + 1;
                     if (len > 0) begin
@@ -170,23 +178,43 @@ module mem_tile #(
             STATE_READ_4: begin
                 case (nibble_counter)
                     0: begin
-                        stream_out <= {12'b0, read_buffer[3:0]};
-                        stream_out_valid <= 1;
+                        if (dir) begin
+                            stream_out_e <= {12'b0, read_buffer[3:0]};
+                            stream_out_e_valid <= 1;
+                        end else begin
+                            stream_out_w <= {12'b0, read_buffer[3:0]};
+                            stream_out_w_valid <= 1;
+                        end
                         nibble_counter <= 1;
                     end
                     1: begin
-                        stream_out <= {12'b0, read_buffer[7:4]};
-                        stream_out_valid <= 1;
+                        if (dir) begin
+                            stream_out_e <= {12'b0, read_buffer[7:4]};
+                            stream_out_e_valid <= 1;
+                        end else begin
+                            stream_out_w <= {12'b0, read_buffer[7:4]};
+                            stream_out_w_valid <= 1;
+                        end
                         nibble_counter <= 2;
                     end
                     2: begin
-                        stream_out <= {12'b0, read_buffer[11:8]};
-                        stream_out_valid <= 1;
+                        if (dir) begin
+                            stream_out_e <= {12'b0, read_buffer[11:8]};
+                            stream_out_e_valid <= 1;
+                        end else begin
+                            stream_out_w <= {12'b0, read_buffer[11:8]};
+                            stream_out_w_valid <= 1;
+                        end
                         nibble_counter <= 3;
                     end
                     3: begin
-                        stream_out <= {12'b0, read_buffer[15:12]};
-                        stream_out_valid <= 1;
+                        if (dir) begin
+                            stream_out_e <= {12'b0, read_buffer[15:12]};
+                            stream_out_e_valid <= 1;
+                        end else begin
+                            stream_out_w <= {12'b0, read_buffer[15:12]};
+                            stream_out_w_valid <= 1;
+                        end
                         nibble_counter <= 0;
                         addr <= addr + 1;
                         if (len > 0) begin
@@ -224,6 +252,7 @@ module mem_tile #(
                     end
                 end
             end
+            default: state <= STATE_IDLE;
         endcase
     end
 endmodule
