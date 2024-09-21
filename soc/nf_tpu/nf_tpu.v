@@ -368,10 +368,6 @@ module sw_tile #(
     output reg ins_out_valid
 );
 
-    localparam STATE_PASS = 0;
-    localparam STATE_DRAM_IN = 1;
-    localparam STATE_DRAM_OUT = 2;
-
     reg [7:0] out_state;
     reg [7:0] in_state;
 
