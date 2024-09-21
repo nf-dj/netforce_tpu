@@ -372,11 +372,12 @@ module sw_tile #(
     localparam STATE_DRAM_IN = 1;
     localparam STATE_DRAM_OUT = 2;
 
-    reg [6:0] out_state;
-    reg [6:0] in_state;
+    reg [7:0] out_state;
+    reg [7:0] in_state;
 
     initial begin
-        state = STATE_PASS;
+        out_state = 0;
+        in_state = 0;
         ins_out_valid = 0;
         stream_out_valid = 0;
         io_up_out_valid = 0;
@@ -391,7 +392,7 @@ module sw_tile #(
         io_up_out <= io_up_in;
         io_down_out_valid <= io_down_in_valid;
         io_down_out <= io_down_in;
-        if (out_state==255 && in_state==255) begin
+        if (out_state==8'hff  && in_state==8'hff) begin
             stream_out_valid <= stream_in_valid;
             stream_out <= stream_in;
         end else begin
@@ -415,10 +416,15 @@ module sw_tile #(
             end
         end
         if (ins_in_valid && ins_tile_no == TILE_NO) begin
-            if (ins_op[7)
-                io_out <= ins_op[6:0];
-            else
-                io_in <= ins_op[6:0];
+            if (ins_op==8'hff) begin
+                out_state <= 8'hff;
+                in_state <= 8'hff;
+            end else begin
+                if (ins_op[7])
+                    out_state <= ins_op[6:0];
+                else
+                    in_state <= ins_op[6:0];
+            end
             ins_out <= 0;
             ins_out_valid <= 0;
         end else begin
