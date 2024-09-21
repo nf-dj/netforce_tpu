@@ -6,10 +6,10 @@
 #module=dot_block
 #module=vec_tile
 #module=vec_slice
-#module=sw_tile
+module=sw_tile
 #module=sw_slice
 #module=mem_tile
-module=mem_slice
+#module=mem_slice
 
 # Create a temporary Yosys script
 cat << EOF > temp_script.ys

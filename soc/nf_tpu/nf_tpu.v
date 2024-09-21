@@ -434,6 +434,7 @@ endmodule
 module sw_slice #(
     parameter NUM_TILES = 8,  // 16*8=128
     parameter LANE_WIDTH = 16,
+    parameter DATA_WIDTH = NUM_TILES*LANE_WIDTH,
     parameter IO_WIDTH = 64,
     parameter SLICE_INS_WIDTH = 16
 ) (
@@ -1505,10 +1506,10 @@ module nf_tpu #(
         .stream_in_valid(stream_valid_inter_e[0]),
         .stream_out(stream_inter_w[0]),
         .stream_out_valid(stream_valid_inter_w[0]),
-        .data_in(sw_data_in),
-        .data_in_valid(sw_data_in_valid),
-        .data_out(sw_data_out),
-        .data_out_valid(sw_data_out_valid),
+        //.data_in(sw_data_in),
+        //.data_in_valid(sw_data_in_valid),
+        //.data_out(sw_data_out),
+        //.data_out_valid(sw_data_out_valid),
         .ins_in(slice_ins[0]),
         .ins_in_valid(slice_ins_valid[0])
     );
