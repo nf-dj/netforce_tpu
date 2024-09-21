@@ -345,17 +345,23 @@ endmodule
 
 module sw_tile #(
     parameter TILE_NO = 0,
+    parameter LANE_WIDTH = 16,
+    parameter IO_WIDTH = 64,
     parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
-    input [15:0] stream_in,
+    input [LANE_WIDTH-1:0] stream_in,
     input stream_in_valid,
-    output reg [15:0] stream_out,
+    output reg [LANE_WIDTH-1:0] stream_out,
     output reg stream_out_valid,
-    input [15:0] data_in,
-    input data_in_valid,
-    output reg [15:0] data_out,
-    output reg data_out_valid,
+    input [IO_WIDTH-1:0] io_up_in,
+    input [IO_WIDTH/LANE_WIDTH-1:0] io_up_in_valid,
+    output reg [IO_WIDTH-1:0] io_up_out,
+    output reg [IO_WIDTH/LANE_WIDTH-1:0] io_up_out_valid,
+    input [IO_WIDTH-1:0] io_down_in,
+    input [IO_WIDTH/LANE_WIDTH-1:0] io_down_in_valid,
+    output reg [IO_WIDTH-1:0] io_down_out,
+    output reg [IO_WIDTH/LANE_WIDTH-1:0] io_down_out_valid,
     input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [SLICE_INS_WIDTH-1:0] ins_out,
@@ -366,32 +372,53 @@ module sw_tile #(
     localparam STATE_DRAM_IN = 1;
     localparam STATE_DRAM_OUT = 2;
 
-    reg [7:0] state;
+    reg [6:0] out_state;
+    reg [6:0] in_state;
 
     initial begin
         state = STATE_PASS;
         ins_out_valid = 0;
         stream_out_valid = 0;
-        data_out_valid = 0;
+        io_up_out_valid = 0;
+        io_down_out_valid = 0;
     end
 
-    wire [7:0] ins_tile_no = ins_in[15:8];
-    wire [7:0] ins_state = ins_in[23:16];
+    wire [7:0] ins_tile_no = ins_in[7:0];
+    wire [7:0] ins_op = ins_in[15:8];
 
     always @(posedge clk) begin
-        if (state == STATE_PASS) begin
-            stream_out <= stream_in;
+        io_up_out_valid <= io_up_in_valid;
+        io_up_out <= io_up_in;
+        io_down_out_valid <= io_down_in_valid;
+        io_down_out <= io_down_in;
+        if (out_state==255 && in_state==255) begin
             stream_out_valid <= stream_in_valid;
-        end else if (state == STATE_DRAM_IN) begin
-            stream_out <= data_in;
-            stream_out_valid <= data_in_valid;
-        end else if (state == STATE_DRAM_OUT) begin
-            data_out <= stream_in;
-            data_out_valid <= stream_in_valid;
-            stream_out <= 0;
+            stream_out <= stream_in;
+        end else begin
+            if (out_state!=0) begin
+                if (out_state[6]) begin
+                    io_up_out_valid[out_state[2:0]] <= stream_in_valid;
+                    io_up_out[out_state[2:0]*16+:16] <= stream_in;
+                end else begin
+                    io_down_out_valid[out_state[2:0]] <= stream_in_valid;
+                    io_down_out[out_state[2:0]*16+:16] <= stream_in;
+                end
+            end
+            if (in_state!=0) begin
+                if (in_state[6]) begin
+                    stream_out_valid <= io_up_in_valid[in_state[2:0]];
+                    stream_out <= io_up_in[in_state[2:0]*16+:16];
+                end else begin
+                    stream_out_valid <= io_down_in_valid[in_state[2:0]];
+                    stream_out <= io_down_in[in_state[2:0]*16+:16];
+                end
+            end
         end
         if (ins_in_valid && ins_tile_no == TILE_NO) begin
-            state <= ins_state;
+            if (ins_op[7)
+                io_out <= ins_op[6:0];
+            else
+                io_in <= ins_op[6:0];
             ins_out <= 0;
             ins_out_valid <= 0;
         end else begin
@@ -403,8 +430,9 @@ module sw_tile #(
 endmodule
 
 module sw_slice #(
-    parameter NUM_TILES = 16,  // 16*8=128
-    parameter DATA_WIDTH = 128,
+    parameter NUM_TILES = 8,  // 16*8=128
+    parameter LANE_WIDTH = 16,
+    parameter IO_WIDTH = 64,
     parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
@@ -412,18 +440,20 @@ module sw_slice #(
     input [NUM_TILES-1:0] stream_in_valid,
     output [DATA_WIDTH-1:0] stream_out,
     output [NUM_TILES-1:0] stream_out_valid,
-    input [DATA_WIDTH-1:0] data_in,
-    input data_in_valid,
-    output [DATA_WIDTH-1:0] data_out,
-    output data_out_valid,
+    input [IO_WIDTH-1:0] io_up_in,
+    input [IO_WIDTH/LANE_WIDTH-1:0] io_up_in_valid,
+    output [IO_WIDTH-1:0] io_down_out,
+    output [IO_WIDTH/LANE_WIDTH-1:0] io_down_out_valid,
     input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid
 );
 
     wire [SLICE_INS_WIDTH-1:0] ins_inter[NUM_TILES-1:0];
     wire ins_valid_inter[NUM_TILES-1:0];
-    wire intermediate_or[NUM_TILES-1:0];
-    wire tile_data_out_valid[NUM_TILES-1:0];
+    wire [IO_WIDTH-1:0] io_up_inter[NUM_TILES-1:0];
+    wire [IO_WIDTH/LANE_WIDTH-1:0] io_up_valid_inter[NUM_TILES-1:0];
+    wire [IO_WIDTH-1:0] io_down_inter[NUM_TILES-1:0];
+    wire [IO_WIDTH/LANE_WIDTH-1:0] io_down_valid_inter[NUM_TILES-1:0];
 
     genvar i;
     generate
@@ -432,25 +462,25 @@ module sw_slice #(
                 .TILE_NO(i)
             ) tile (
                 .clk(clk),
-                .stream_in(stream_in[i*16+:16]),
+                .stream_in(stream_in[i*LANE_WIDTH+:LANE_WIDTH]),
                 .stream_in_valid(stream_in_valid[i]),
-                .stream_out(stream_out[i*16+:16]),
+                .stream_out(stream_out[i*LANE_WIDTH+:LANE_WIDTH]),
                 .stream_out_valid(stream_out_valid[i]),
-                .data_in(data_in[i*16+:16]),
-                .data_in_valid(data_in_valid),
-                .data_out(data_out[i*16+:16]),
-                .data_out_valid(tile_data_out_valid[i]),
+                .io_up_in(i==0?io_up_in:io_up_inter[i-1]),
+                .io_up_in_valid(i==0?io_up_in_valid:io_up_valid_inter[i-1]),
+                .io_up_out(io_up_inter[i]),
+                .io_up_out_valid(io_up_valid_inter[i]),
+                .io_down_out(i==0?io_down_out:io_down_inter[i-1]),
+                .io_down_out_valid(i==0?io_down_out_valid:io_down_valid_inter[i-1]),
+                .io_down_in(io_down_inter[i]),
+                .io_down_in_valid(io_down_valid_inter[i]),
                 .ins_in(i == 0 ? ins_in : ins_inter[i-1]),
                 .ins_in_valid(i == 0 ? ins_in_valid : ins_valid_inter[i-1]),
                 .ins_out(ins_inter[i]),
                 .ins_out_valid(ins_valid_inter[i])
             );
-
-            assign intermediate_or[i] = (i==0 ? 0 : intermediate_or[i-1]) | tile_data_out_valid[i];
         end
     endgenerate
-
-    assign data_out_valid = intermediate_or[NUM_TILES-1];
 
 endmodule
 
@@ -974,94 +1004,6 @@ module vec_id #(
 endmodule
 
 // stream io
-
-module fifo_512_to_64 (
-    input wire clk,
-    input wire [511:0] data_in,
-    input wire wr_en,
-    input wire rd_en,
-    output reg [63:0] data_out,
-    output reg data_out_valid,
-    output wire fifo_full,
-    output wire fifo_empty
-);
-
-parameter FIFO_DEPTH = 64;
-parameter INPUT_WIDTH = 512;
-parameter OUTPUT_WIDTH = 64;
-parameter PTR_BITS = $clog2(FIFO_DEPTH);
-
-reg [INPUT_WIDTH-1:0] fifo_mem [0:FIFO_DEPTH-1];
-reg [PTR_BITS-1:0] wr_ptr = 0;
-reg [PTR_BITS-1:0] rd_ptr = 0;
-reg [2:0] rd_shift = 0;
-
-initial begin
-    data_out_valid = 0;
-end
-
-assign fifo_empty = (wr_ptr == rd_ptr) && (rd_shift == 0);
-assign fifo_full = ((wr_ptr + 1'b1) == rd_ptr);
-assign fifo_length = wr_ptr >= rd_ptr ? (wr_ptr - rd_ptr) : (FIFO_DEPTH + wr_ptr - rd_ptr);
-
-always @(posedge clk) begin
-    if (wr_en && !fifo_full) begin
-        fifo_mem[wr_ptr] <= data_in;
-        wr_ptr <= wr_ptr + 1'b1;
-    end
-end
-
-always @(posedge clk) begin
-    if (rd_en && !fifo_empty) begin
-        data_out <= fifo_mem[rd_ptr][rd_shift*OUTPUT_WIDTH +: OUTPUT_WIDTH];
-        rd_shift <= rd_shift + 1'b1;
-        data_out_valid <= 1;
-        if (rd_shift == ((INPUT_WIDTH / OUTPUT_WIDTH) - 1)) begin
-            rd_shift <= 0;
-            rd_ptr <= rd_ptr + 1'b1;
-        end
-    end else begin
-        data_out_valid <= 0;
-    end
-end
-
-endmodule
-
-module conv_64_to_512 (
-    input clk,
-    input [63:0] data_in,
-    input data_in_valid,
-    output reg [511:0] data_out,
-    output reg data_out_valid
-);
-
-reg [63:0] buffer[7:0];
-reg [2:0] count;
-
-initial begin
-    count = 0;
-    data_out_valid = 0;
-    data_out = 0;
-end
-
-always @(posedge clk) begin
-    if (data_in_valid) begin
-        buffer[count] <= data_in;
-        if (count == 7) begin
-            data_out <= {buffer[7], buffer[6], buffer[5], buffer[4], 
-                             buffer[3], buffer[2], buffer[1], buffer[0]};
-            data_out_valid <= 1;
-            count <= 0;
-        end else begin
-            count <= count + 1;
-            data_out_valid <= 0;
-        end
-    end else begin
-        data_out_valid <= 0;
-    end
-end
-
-endmodule
 
 module stream_io #(
     parameter ID_NO  = 0,
