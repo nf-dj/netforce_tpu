@@ -1263,19 +1263,18 @@ endmodule
 
 module dram_io #(
     parameter ID_NO  = 1,
-    parameter DATA_WIDTH = 512,
+    parameter IO_WIDTH = 512,
     parameter ADDR_WIDTH = 32,
-    parameter BURST_LEN_MAX = 256,
     parameter INS_WIDTH = 64
 ) (
     input wire clk,
     input wire rst,
 
     output reg [ADDR_WIDTH-1:0] wb_adr_o,
-    output reg [DATA_WIDTH-1:0] wb_dat_o,
-    input wire [DATA_WIDTH-1:0] wb_dat_i,
+    output reg [IO_WIDTH-1:0] wb_dat_o,
+    input wire [IO_WIDTH-1:0] wb_dat_i,
     output reg wb_we_o,
-    output reg [DATA_WIDTH/8-1:0] wb_sel_o,
+    output reg [IO_WIDTH/8-1:0] wb_sel_o,
     output reg wb_stb_o,
     output reg wb_cyc_o,
     input wire wb_ack_i,
@@ -1286,10 +1285,10 @@ module dram_io #(
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
 
-    output reg [DATA_WIDTH-1:0] sw_data_out,
+    output reg [IO_WIDTH-1:0] sw_data_out,
     output reg sw_data_out_valid,
 
-    input [DATA_WIDTH-1:0] sw_data_in,
+    input [IO_WIDTH-1:0] sw_data_in,
     input sw_data_in_valid
 );
 
@@ -1322,7 +1321,7 @@ module dram_io #(
         wb_stb_o = 0;
         wb_cyc_o = 0;
         wb_we_o = 0;
-        wb_sel_o = {(DATA_WIDTH/8){1'b1}};
+        wb_sel_o = {(IO_WIDTH/8){1'b1}};
         ins_out_valid = 0;
         dram_ins_in_valid = 0;
         dram_ins_in = 0;
@@ -1406,7 +1405,7 @@ module dram_io #(
                             wb_cyc_o <= 0;
                         end else begin
                             burst_counter <= burst_counter - 1;
-                            wb_adr_o <= wb_adr_o + (DATA_WIDTH / 8);
+                            wb_adr_o <= wb_adr_o + (IO_WIDTH / 8);
                         end
                     end
                 end
@@ -1420,7 +1419,7 @@ module dram_io #(
                             wb_cyc_o <= 0;
                         end else begin
                             burst_counter <= burst_counter - 1;
-                            wb_adr_o <= wb_adr_o + (DATA_WIDTH / 8);
+                            wb_adr_o <= wb_adr_o + (IO_WIDTH / 8);
                         end
                     end
                 end
@@ -1435,7 +1434,7 @@ module dram_io #(
                                 wb_we_o <= 0;
                             end else begin
                                 burst_counter <= burst_counter - 1;
-                                wb_adr_o <= wb_adr_o + (DATA_WIDTH / 8);
+                                wb_adr_o <= wb_adr_o + (IO_WIDTH / 8);
                             end
                         end
                     end
