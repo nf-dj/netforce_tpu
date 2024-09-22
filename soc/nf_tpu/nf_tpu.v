@@ -443,10 +443,10 @@ module sw_slice #(
     input [NUM_TILES-1:0] stream_in_valid,
     output [DATA_WIDTH-1:0] stream_out,
     output [NUM_TILES-1:0] stream_out_valid,
-    input [IO_WIDTH-1:0] io_up_in,
-    input [IO_WIDTH/LANE_WIDTH-1:0] io_up_in_valid,
-    output [IO_WIDTH-1:0] io_down_out,
-    output [IO_WIDTH/LANE_WIDTH-1:0] io_down_out_valid,
+    input [IO_WIDTH-1:0] io_in,
+    input [IO_WIDTH/LANE_WIDTH-1:0] io_in_valid,
+    output [IO_WIDTH-1:0] io_out,
+    output [IO_WIDTH/LANE_WIDTH-1:0] io_out_valid,
     input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid
 );
@@ -469,12 +469,12 @@ module sw_slice #(
                 .stream_in_valid(stream_in_valid[i]),
                 .stream_out(stream_out[i*LANE_WIDTH+:LANE_WIDTH]),
                 .stream_out_valid(stream_out_valid[i]),
-                .io_up_in(i==0?io_up_in:io_up_inter[i-1]),
-                .io_up_in_valid(i==0?io_up_in_valid:io_up_valid_inter[i-1]),
+                .io_up_in(i==0?io_in:io_up_inter[i-1]),
+                .io_up_in_valid(i==0?io_in_valid:io_up_valid_inter[i-1]),
                 .io_up_out(io_up_inter[i]),
                 .io_up_out_valid(io_up_valid_inter[i]),
-                .io_down_out(i==0?io_down_out:io_down_inter[i-1]),
-                .io_down_out_valid(i==0?io_down_out_valid:io_down_valid_inter[i-1]),
+                .io_down_out(i==0?io_out:io_down_inter[i-1]),
+                .io_down_out_valid(i==0?io_out_valid:io_down_valid_inter[i-1]),
                 .io_down_in(io_down_inter[i]),
                 .io_down_in_valid(io_down_valid_inter[i]),
                 .ins_in(i == 0 ? ins_in : ins_inter[i-1]),
@@ -1566,10 +1566,10 @@ module nf_tpu #(
         .stream_in_valid(stream_valid_inter_e[0]),
         .stream_out(stream_inter_w[0]),
         .stream_out_valid(stream_valid_inter_w[0]),
-        //.data_in(sw_data_in),
-        //.data_in_valid(sw_data_in_valid),
-        //.data_out(sw_data_out),
-        //.data_out_valid(sw_data_out_valid),
+        .io_in(sw_data_in),
+        .io_in_valid(sw_data_in_valid),
+        .io_out(sw_data_out),
+        .io_out_valid(sw_data_out_valid),
         .ins_in(slice_ins[0]),
         .ins_in_valid(slice_ins_valid[0])
     );
@@ -1661,7 +1661,7 @@ module nf_tpu #(
     );
 
     dot_block #(
-        .ID_NO(6)
+        .START_ID_NO(6)
     ) dot_block1 (
         .clk(clk),
         .stream_in_w(stream_inter_w[3]),
