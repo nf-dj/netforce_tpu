@@ -770,7 +770,7 @@ module dot_block #(
     parameter NUM_TILES = 8,
     parameter INS_WIDTH = 64,
     parameter NUM_SLICES = 8,
-    parameter START_ID_NO = 8,
+    parameter START_ID_NO = 6,
 )(
     input clk,
     input [DATA_WIDTH-1:0] stream_in_w,
@@ -1660,53 +1660,16 @@ module nf_tpu #(
         .ins_in_valid(slice_ins_valid[5])
     );
 
-    dot_id #(
+    dot_block #(
         .ID_NO(6)
-    ) dot_id1 (
-        .clk(clk),
-        .ins_in(ins_inter[5]),
-        .ins_in_valid(ins_valid_inter[5]),
-        .ins_out(ins_inter[6]),
-        .ins_out_valid(ins_valid_inter[6]),
-        .slice_ins_out(slice_ins[6]),
-        .slice_ins_out_valid(slice_ins_valid[6])
-    );
-
-    dot_slice dot_slice1 (
+    ) dot_block1 (
         .clk(clk),
         .stream_in_w(stream_inter_w[3]),
         .stream_in_w_valid(stream_valid_inter_w[3]),
         .stream_out_e(stream_inter_e[3]),
         .stream_out_e_valid(stream_valid_inter_e[3]),
-        .stream_out_w(stream_inter_w[4]),
-        .stream_out_w_valid(stream_valid_inter_w[4]),
-        .stream_in_e(stream_inter_e[4]),
-        .stream_in_e_valid(stream_valid_inter_e[4]),
         .ins_in(slice_ins[6]),
         .ins_in_valid(slice_ins_valid[6])
-    );
-
-    dot_id #(
-        .ID_NO(7)
-    ) dot_id2 (
-        .clk(clk),
-        .ins_in(ins_inter[6]),
-        .ins_in_valid(ins_valid_inter[6]),
-        .ins_out(ins_inter[7]),
-        .ins_out_valid(ins_valid_inter[7]),
-        .slice_ins_out(slice_ins[7]),
-        .slice_ins_out_valid(slice_ins_valid[7])
-    );
-
-    dot_slice dot_slice2 (
-        .clk(clk),
-        .stream_in_w(stream_inter_w[4]),
-        .stream_in_w_valid(stream_valid_inter_w[4]),
-        .stream_out_e(stream_inter_e[4]),
-        .stream_out_e_valid(stream_valid_inter_e[4]),
-        .stream_in_e_valid(0),
-        .ins_in(slice_ins[7]),
-        .ins_in_valid(slice_ins_valid[7])
     );
 
 endmodule
