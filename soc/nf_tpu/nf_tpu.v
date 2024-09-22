@@ -1008,141 +1008,203 @@ endmodule
 
 // stream io
 
-module stream_io #(
-    parameter ID_NO  = 0,
-    parameter DATA_WIDTH = 512,
-    parameter INS_WIDTH = 64,
-    parameter STREAM_WIDTH = 64
+module stream_fifo #(
+    parameter WIDTH = 64,
+    parameter DEPTH = 16
 ) (
     input wire clk,
+    input wire rst,
+    input wire [WIDTH-1:0] write_data,
+    input wire write_en,
+    input wire read_en,
+    output reg [WIDTH-1:0] read_data,
+    output wire empty,
+    output wire full,
+    input wire in_last,
+    output reg out_last
+);
 
-    input [STREAM_WIDTH-1:0] rx_tdata,
-    input rx_tvalid,
-    input rx_tlast,
-    output rx_tready,
+    reg [WIDTH-1:0] mem [0:DEPTH-1];
+    reg [$clog2(DEPTH):0] write_ptr;
+    reg [$clog2(DEPTH):0] read_ptr;
+    reg [DEPTH-1:0] last_flags;
 
-    output [STREAM_WIDTH-1:0] tx_tdata,
-    output tx_tvalid,
-    output reg tx_tlast,
-    input tx_tready,
+    assign empty = (write_ptr == read_ptr);
+    assign full = (write_ptr[($clog2(DEPTH)-1):0] == read_ptr[($clog2(DEPTH)-1):0]) && 
+                  (write_ptr[$clog2(DEPTH)] != read_ptr[$clog2(DEPTH)]);
 
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            write_ptr <= 0;
+            read_ptr <= 0;
+            last_flags <= 0;
+        end else begin
+            if (write_en && !full) begin
+                mem[write_ptr[($clog2(DEPTH)-1):0]] <= write_data;
+                last_flags[write_ptr[($clog2(DEPTH)-1):0]] <= in_last;
+                write_ptr <= write_ptr + 1;
+            end
+
+            if (read_en && !empty) begin
+                read_data <= mem[read_ptr[($clog2(DEPTH)-1):0]];
+                out_last <= last_flags[read_ptr[($clog2(DEPTH)-1):0]];
+                read_ptr <= read_ptr + 1;
+            end
+        end
+    end
+
+endmodule
+
+module stream_io #(
+    parameter ID_NO     = 0,
+    parameter IO_WIDTH  = 64,
+    parameter INS_WIDTH = 64,
+    parameter FIFO_DEPTH = 16
+) (
+    input wire clk,
+    input wire rst,
+    input [IO_WIDTH-1:0] rx_data,
+    input rx_valid,
+    input rx_last,
+    output reg rx_ready,
+    output [IO_WIDTH-1:0] tx_data,
+    output tx_valid,
+    output tx_last,
+    input tx_ready,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
-
-    output reg [DATA_WIDTH-1:0] sw_data_out,
+    output reg [IO_WIDTH-1:0] sw_data_out,
     output reg sw_data_out_valid,
-
-    input [DATA_WIDTH-1:0] sw_data_in,
+    input [IO_WIDTH-1:0] sw_data_in,
     input sw_data_in_valid
 );
-    localparam RX_STATE_INS = 0;
-    localparam RX_STATE_DATA = 1;
-    localparam RX_STATE_NOP = 2;
-
-    localparam TX_STATE_PASS = 0;
-    localparam TX_STATE_DATA = 1;
-
-    localparam OP_READ_DATA = 1;
-    localparam OP_WRITE_DATA = 2;
-    localparam OP_NOP = 3;
+    localparam RX_STATE_INS  = 2'd0;
+    localparam RX_STATE_DATA = 2'd1;
+    localparam RX_STATE_NOP  = 2'd2;
+    localparam TX_STATE_PASS = 1'd0;
+    localparam TX_STATE_DATA = 1'd1;
+    localparam OP_READ_DATA  = 8'd1;
+    localparam OP_WRITE_DATA = 8'd2;
+    localparam OP_NOP        = 8'd3;
 
     reg [1:0] rx_state;
     reg [15:0] rx_len;
-    reg [1:0] tx_state;
+    reg tx_state;
     reg [15:0] tx_len;
 
-    reg [STREAM_WIDTH-1:0] rx_conv_data_in;
-    reg rx_conv_data_in_valid;
+    wire fifo_empty, fifo_full;
+    reg [IO_WIDTH-1:0] fifo_in_data;
+    reg fifo_in_last;
+    reg fifo_write_en;
+    wire fifo_read_en;
 
-    wire [STREAM_WIDTH-1:0] fifo_data_out;
-    wire fifo_data_out_valid;
+    stream_fifo #(
+        .WIDTH(IO_WIDTH),
+        .DEPTH(FIFO_DEPTH)
+    ) tx_fifo (
+        .clk(clk),
+        .rst(rst),
+        .write_data(fifo_in_data),
+        .write_en(fifo_write_en),
+        .read_en(fifo_read_en),
+        .read_data(tx_data),
+        .empty(fifo_empty),
+        .full(fifo_full),
+        .in_last(fifo_in_last),
+        .out_last(tx_last)
+    );
 
-    assign rx_tready = rx_state == RX_STATE_INS || rx_state == RX_STATE_DATA;
+    assign tx_valid = !fifo_empty;
+    assign fifo_read_en = tx_valid && tx_ready;
 
-    initial begin
-        rx_state = RX_STATE_INS;
-        rx_len = 0;
-        tx_tlast = 1;
-        tx_state = TX_STATE_PASS;
-        tx_len = 0;
-        ins_out_valid = 0;
-        ins_out = 0;
-        rx_conv_data_in = 0;
-        rx_conv_data_in_valid = 0;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            rx_state <= RX_STATE_INS;
+            rx_len <= 16'd0;
+            tx_state <= TX_STATE_PASS;
+            tx_len <= 16'd0;
+            ins_out_valid <= 1'b0;
+            ins_out <= {INS_WIDTH{1'b0}};
+            sw_data_out_valid <= 1'b0;
+            sw_data_out <= {IO_WIDTH{1'b0}};
+            rx_ready <= 1'b1;
+            fifo_write_en <= 1'b0;
+            fifo_in_last <= 1'b0;
+        end else begin
+            case (rx_state)
+                RX_STATE_INS: begin
+                    if (rx_valid) begin
+                        if (rx_data[7:0] == 8'd0) begin
+                            case (rx_data[15:8])
+                                OP_READ_DATA: begin
+                                    rx_state <= RX_STATE_DATA;
+                                    rx_len <= rx_data[31:16];
+                                end
+                                OP_WRITE_DATA: begin
+                                    tx_state <= TX_STATE_DATA;
+                                    tx_len <= rx_data[31:16];
+                                end
+                                OP_NOP: begin
+                                    rx_state <= RX_STATE_NOP;
+                                    rx_len <= rx_data[31:16];
+                                end
+                                default: rx_state <= RX_STATE_INS;
+                            endcase
+                            ins_out <= {INS_WIDTH{1'b0}};
+                            ins_out_valid <= 1'b0;
+                        end else begin
+                            ins_out <= rx_data[INS_WIDTH-1:0];
+                            ins_out_valid <= 1'b1;
+                        end
+                    end else begin
+                        ins_out <= {INS_WIDTH{1'b0}};
+                        ins_out_valid <= 1'b0;
+                    end
+                end
+                RX_STATE_DATA: begin
+                    if (rx_valid) begin
+                        sw_data_out <= rx_data;
+                        sw_data_out_valid <= 1'b1;
+                        if (rx_len == 16'd0 || rx_last) begin
+                            rx_state <= RX_STATE_INS;
+                        end else begin
+                            rx_len <= rx_len - 16'd1;
+                        end
+                    end else begin
+                        sw_data_out_valid <= 1'b0;
+                    end
+                end
+                RX_STATE_NOP: begin
+                    if (rx_len == 16'd0) begin
+                        rx_state <= RX_STATE_INS;
+                    end else begin
+                        rx_len <= rx_len - 16'd1;
+                    end
+                end
+            endcase
+
+            fifo_write_en <= 1'b0;
+            case (tx_state)
+                TX_STATE_PASS: begin
+                end
+                TX_STATE_DATA: begin
+                    if (sw_data_in_valid && !fifo_full) begin
+                        fifo_in_data <= sw_data_in;
+                        fifo_in_last <= (tx_len == 16'd1);
+                        fifo_write_en <= 1'b1;
+                        if (tx_len == 16'd0) begin
+                            tx_state <= TX_STATE_PASS;
+                        end else begin
+                            tx_len <= tx_len - 16'd1;
+                        end
+                    end
+                end
+            endcase
+        end
     end
 
-    fifo_512_to_64 tx_fifo (
-        .clk(clk),
-        .data_in(sw_data_in),
-        .wr_en(sw_data_in_valid),
-        .data_out(tx_tdata),
-        .data_out_valid(tx_tvalid),
-        .rd_en(tx_tready)
-    );
-
-    conv_64_to_512 rx_conv (
-        .clk(clk),
-        .data_in(rx_conv_data_in),
-        .data_in_valid(rx_conv_data_in_valid),
-        .data_out(sw_data_out),
-        .data_out_valid(sw_data_out_valid)
-    );
-
-    always @(posedge clk) begin
-        if (rx_state == RX_STATE_INS) begin
-            rx_conv_data_in_valid <= 0;
-            if (rx_tvalid) begin
-                if (rx_tdata[7:0] == 0) begin
-                    if (rx_tdata[15:8] == OP_READ_DATA) begin
-                        rx_state <= RX_STATE_DATA;
-                        rx_len <= rx_tdata[31:16];
-                    end else if (rx_tdata[15:8] == OP_WRITE_DATA) begin
-                        tx_state <= TX_STATE_DATA;
-                        tx_len <= rx_tdata[31:16];
-                    end else if (rx_tdata[15:8] == OP_NOP) begin
-                        rx_state <= RX_STATE_NOP;
-                        rx_len <= rx_tdata[31:16];
-                    end
-                    ins_out <= 0;
-                    ins_out_valid <= 0;
-                end else begin
-                    ins_out <= rx_tdata;
-                    ins_out_valid <= 1;
-                end
-            end else begin
-                ins_out <= 0;
-                ins_out_valid <= 0;
-            end
-        end else if (rx_state == RX_STATE_DATA) begin
-            if (rx_tvalid) begin
-                rx_conv_data_in <= rx_tdata;
-                rx_conv_data_in_valid <= 1;
-                if (rx_len == 0) begin
-                    rx_state <= RX_STATE_INS;
-                end else begin
-                    rx_len <= rx_len - 1;
-                end
-            end else begin
-                rx_conv_data_in_valid <= 0;
-            end
-        end else if (rx_state == RX_STATE_NOP) begin
-            if (rx_len == 0) begin
-                rx_state <= RX_STATE_INS;
-            end else begin
-                rx_len <= rx_len - 1;
-            end
-        end
-        if (tx_state == TX_STATE_DATA) begin
-            if (tx_tvalid) begin // XXX: check this
-                if (tx_len == 0) begin
-                    tx_state <= TX_STATE_PASS;
-                    tx_tlast <= 1;
-                end else begin
-                    tx_len <= tx_len - 1;
-                    tx_tlast <= 0;
-                end
-            end
-        end
+    always @(*) begin
+        rx_ready = (rx_state == RX_STATE_INS) || (rx_state == RX_STATE_DATA);
     end
 
 endmodule
@@ -1394,8 +1456,7 @@ endmodule
 // top
 
 module nf_tpu #(
-    parameter DATA_WIDTH = 512,
-    parameter STREAM_WIDTH = 64,
+    parameter IO_WIDTH = 64,
     parameter ADDR_WIDTH = 32,
     parameter INS_WIDTH = 64,
     parameter SLICE_INS_WIDTH = 16,
@@ -1404,42 +1465,42 @@ module nf_tpu #(
     input wire clk,
     input wire reset,
 
-    input wire [STREAM_WIDTH-1:0] sink_data,
+    input wire [IO_WIDTH-1:0] sink_data,
     input wire sink_valid,
     input wire sink_last,
     output reg sink_ready,
 
-    output reg [STREAM_WIDTH-1:0] source_data,
+    output reg [IO_WIDTH-1:0] source_data,
     output reg source_valid,
     output reg source_last,
     input wire source_ready,
 
     output reg [ADDR_WIDTH-1:0] dram_addr,
-    output reg [DATA_WIDTH-1:0] dram_dat_w,
-    input wire [DATA_WIDTH-1:0] dram_dat_r,
+    output reg [IO_WIDTH-1:0] dram_dat_w,
+    input wire [IO_WIDTH-1:0] dram_dat_r,
     output reg dram_we,
-    output reg [DATA_WIDTH/8-1:0] dram_sel,
+    output reg [IO_WIDTH/8-1:0] dram_sel,
     output reg dram_stb,
     output reg dram_cyc,
     input wire dram_ack
 );
-    wire [DATA_WIDTH-1:0] dram_sw_data_out;
+    wire [IO_WIDTH-1:0] dram_sw_data_out;
     wire dram_sw_data_out_valid;
-    wire [DATA_WIDTH-1:0] stream_sw_data_out;
+    wire [IO_WIDTH-1:0] stream_sw_data_out;
     wire stream_sw_data_out_valid;
-    wire [INS_WIDTH-1:0] ins_inter[0:7];
+    wire [IO_WIDTH-1:0] ins_inter[0:7];
     wire ins_valid_inter[0:7];
-    wire [DATA_WIDTH-1:0] sw_data_in;
+    wire [IO_WIDTH-1:0] sw_data_in;
     wire sw_data_in_valid;
-    wire [DATA_WIDTH-1:0] sw_data_out;
+    wire [IO_WIDTH-1:0] sw_data_out;
     wire sw_data_out_valid;
-    wire [STREAM_WIDTH-1:0] stream_in;
+    wire [IO_WIDTH-1:0] stream_in;
     wire stream_in_valid;
     //wire io_out_valid;
     wire [SLICE_INS_WIDTH-1:0] slice_ins[0:7];
     wire slice_ins_valid[0:7];
-    wire [DATA_WIDTH-1:0] stream_inter_w[0:5];
-    wire [DATA_WIDTH-1:0] stream_inter_e[0:5];
+    wire [IO_WIDTH-1:0] stream_inter_w[0:5];
+    wire [IO_WIDTH-1:0] stream_inter_e[0:5];
     wire [NUM_TILES-1:0] stream_valid_inter_w[0:5];
     wire [NUM_TILES-1:0] stream_valid_inter_e[0:5];
 
@@ -1450,14 +1511,14 @@ module nf_tpu #(
         .ID_NO(0)
     ) stream (
         .clk(clk),
-        .rx_tdata(sink_data),
-        .rx_tvalid(sink_valid),
-        .rx_tlast(sink_last),
-        .rx_tready(sink_ready),
-        .tx_tdata(source_data),
-        .tx_tvalid(source_valid),
-        .tx_tlast(source_last),
-        .tx_tready(source_ready),
+        .rx_data(sink_data),
+        .rx_valid(sink_valid),
+        .rx_last(sink_last),
+        .rx_ready(sink_ready),
+        .tx_data(source_data),
+        .tx_valid(source_valid),
+        .tx_last(source_last),
+        .tx_ready(source_ready),
         .ins_out(ins_inter[0]),
         .ins_out_valid(ins_valid_inter[0]),
         .sw_data_out(stream_sw_data_out),
