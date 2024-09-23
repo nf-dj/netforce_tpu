@@ -1266,9 +1266,9 @@ module id_fifo #(
             ins_out <= 0;
             repeat_count <= 0;
             state <= 0;
-            for (i = 0; i < DEPTH; i = i + 1) begin
+            /*for (i = 0; i < DEPTH; i = i + 1) begin
                 fifo[i] <= 0;
-            end
+            end*/
         end else begin
             if (!fifo_full && ins_in_valid) begin
                 fifo[write_ptr] <= ins_in;
