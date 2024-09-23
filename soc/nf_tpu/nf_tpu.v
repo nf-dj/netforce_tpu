@@ -3,9 +3,10 @@
 module mem_tile #(
     parameter TILE_NO = 0,
     parameter INS_WIDTH = 16,
-    parameter MEM_DEPTH = 1024*2,
+    parameter MEM_DEPTH = 1024*2
 ) (
     input wire clk,
+    input wire rst,
     input [15:0] stream_in_w,
     input stream_in_w_valid,
     output reg [15:0] stream_out_w,
@@ -55,22 +56,15 @@ module mem_tile #(
     assign stream_in = dir ? stream_in_e : stream_in_w;
     assign stream_in_valid = dir ? stream_in_e_valid : stream_in_w_valid;
 
-    initial begin
-        state = STATE_IDLE;
-        ins_out_valid = 0;
-        stream_out_w_valid = 0;
-        stream_out_e_valid = 0;
-        len = 0;
-        addr = 0;
-        operation = OP_PASS;
-        byte_counter = 0;
-        nibble_counter = 0;
-    end
-
     (* syn_ramstyle = "block_ram" *)
     (* syn_implementation = "EBR" *)
     always @(posedge clk) begin
-        if (state == STATE_WRITE_16 && stream_in_valid) begin
+        if (rst) begin
+            /*integer i;
+            for (i = 0; i < MEM_DEPTH; i = i + 1) begin
+                bram[i] <= 16'b0;
+            end*/
+        end else if (state == STATE_WRITE_16 && stream_in_valid) begin
             bram[addr] <= stream_in;
         end else if (state == STATE_WRITE_8 && stream_in_valid && byte_counter == 1) begin
             bram[addr] <= write_buffer;
@@ -78,144 +72,113 @@ module mem_tile #(
     end
 
     always @(posedge clk) begin
-        if (state == STATE_READ_16 || state == STATE_READ_8 || state == STATE_READ_4) begin
+        if (rst) begin
+            read_buffer <= 16'b0;
+        end else if (state == STATE_READ_16 || state == STATE_READ_8 || state == STATE_READ_4) begin
             read_buffer <= bram[addr];
         end
     end
 
-    always @(posedge clk) begin
-        stream_out_w_valid <= 0;
-        stream_out_e_valid <= 0;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state <= STATE_IDLE;
+            ins_out_valid <= 0;
+            stream_out_w_valid <= 0;
+            stream_out_e_valid <= 0;
+            len <= 0;
+            addr <= 0;
+            operation <= OP_PASS;
+            byte_counter <= 0;
+            nibble_counter <= 0;
+            dir <= 0;
+            stream_out_w <= 16'b0;
+            stream_out_e <= 16'b0;
+            ins_out <= 0;
+            write_buffer <= 16'b0;
+        end else begin
+            stream_out_w_valid <= 0;
+            stream_out_e_valid <= 0;
 
-        case (state)
-            STATE_IDLE: begin
-                if (ins_in_valid && ins_in[7:0] == TILE_NO) begin
-                    operation <= ins_in[14:12];
-                    dir <= ins_in[15];
-                    if (ins_in[14:12] == OP_PASS) begin
-                        state <= STATE_PASS;
+            case (state)
+                STATE_IDLE: begin
+                    if (ins_in_valid && ins_in[7:0] == TILE_NO) begin
+                        operation <= ins_in[14:12];
+                        dir <= ins_in[15];
+                        if (ins_in[14:12] == OP_PASS) begin
+                            state <= STATE_PASS;
+                        end else begin
+                            state <= STATE_WAIT_ADDR;
+                        end
+                        ins_out_valid <= 0;
                     end else begin
-                        state <= STATE_WAIT_ADDR;
+                        ins_out <= ins_in;
+                        ins_out_valid <= ins_in_valid;
                     end
-                    ins_out_valid <= 0;
-                end else begin
-                    ins_out <= ins_in;
-                    ins_out_valid <= ins_in_valid;
                 end
-            end
-            STATE_WAIT_ADDR: begin
-                if (ins_in_valid) begin
-                    addr <= ins_in;
-                    state <= STATE_WAIT_LEN;
+                STATE_WAIT_ADDR: begin
+                    if (ins_in_valid) begin
+                        addr <= ins_in;
+                        state <= STATE_WAIT_LEN;
+                    end
                 end
-            end
-            STATE_WAIT_LEN: begin
-                if (ins_in_valid) begin
-                    len <= ins_in;
-                    case (operation)
-                        OP_READ_16: state <= STATE_READ_16;
-                        OP_READ_8: state <= STATE_READ_8;
-                        OP_READ_4: state <= STATE_READ_4;
-                        OP_WRITE_16: state <= STATE_WRITE_16;
-                        OP_WRITE_8: state <= STATE_WRITE_8;
-                        default: state <= STATE_IDLE;
-                    endcase
-                    byte_counter <= 0;
-                    nibble_counter <= 0;
+                STATE_WAIT_LEN: begin
+                    if (ins_in_valid) begin
+                        len <= ins_in;
+                        case (operation)
+                            OP_READ_16: state <= STATE_READ_16;
+                            OP_READ_8: state <= STATE_READ_8;
+                            OP_READ_4: state <= STATE_READ_4;
+                            OP_WRITE_16: state <= STATE_WRITE_16;
+                            OP_WRITE_8: state <= STATE_WRITE_8;
+                            default: state <= STATE_IDLE;
+                        endcase
+                        byte_counter <= 0;
+                        nibble_counter <= 0;
+                    end
                 end
-            end
-            STATE_PASS: begin
-                stream_out_w_valid <= stream_in_w_valid;
-                stream_out_w <= stream_in_w;
-                stream_out_e_valid <= stream_in_e_valid;
-                stream_out_e <= stream_in_e;
-                if (!ins_in_valid) begin
-                    state <= STATE_IDLE;
+                STATE_PASS: begin
+                    stream_out_w_valid <= stream_in_w_valid;
+                    stream_out_w <= stream_in_w;
+                    stream_out_e_valid <= stream_in_e_valid;
+                    stream_out_e <= stream_in_e;
+                    if (!ins_in_valid) begin
+                        state <= STATE_IDLE;
+                    end
                 end
-            end
-            STATE_READ_16: begin
-                if (dir) begin
-                    stream_out_e <= read_buffer;
-                    stream_out_e_valid <= 1;
-                end else begin
-                    stream_out_w <= read_buffer;
-                    stream_out_w_valid <= 1;
-                end
-                if (len > 0) begin
-                    addr <= addr + 1;
-                    len <= len - 1;
-                end else begin
-                    state <= STATE_IDLE;
-                end
-            end
-            STATE_READ_8: begin
-                if (byte_counter == 0) begin
+                STATE_READ_16: begin
                     if (dir) begin
-                        stream_out_e <= {8'b0, read_buffer[7:0]};
+                        stream_out_e <= read_buffer;
                         stream_out_e_valid <= 1;
                     end else begin
-                        stream_out_w <= {8'b0, read_buffer[7:0]};
+                        stream_out_w <= read_buffer;
                         stream_out_w_valid <= 1;
                     end
-                    byte_counter <= 1;
-                end else begin
-                    if (dir) begin
-                        stream_out_e <= {8'b0, read_buffer[15:8]};
-                        stream_out_e_valid <= 1;
-                    end else begin
-                        stream_out_w <= {8'b0, read_buffer[15:8]};
-                        stream_out_w_valid <= 1;
-                    end
-                    byte_counter <= 0;
-                    addr <= addr + 1;
                     if (len > 0) begin
+                        addr <= addr + 1;
                         len <= len - 1;
                     end else begin
                         state <= STATE_IDLE;
                     end
                 end
-            end
-            STATE_READ_4: begin
-                case (nibble_counter)
-                    0: begin
+                STATE_READ_8: begin
+                    if (byte_counter == 0) begin
                         if (dir) begin
-                            stream_out_e <= {12'b0, read_buffer[3:0]};
+                            stream_out_e <= {8'b0, read_buffer[7:0]};
                             stream_out_e_valid <= 1;
                         end else begin
-                            stream_out_w <= {12'b0, read_buffer[3:0]};
+                            stream_out_w <= {8'b0, read_buffer[7:0]};
                             stream_out_w_valid <= 1;
                         end
-                        nibble_counter <= 1;
-                    end
-                    1: begin
+                        byte_counter <= 1;
+                    end else begin
                         if (dir) begin
-                            stream_out_e <= {12'b0, read_buffer[7:4]};
+                            stream_out_e <= {8'b0, read_buffer[15:8]};
                             stream_out_e_valid <= 1;
                         end else begin
-                            stream_out_w <= {12'b0, read_buffer[7:4]};
+                            stream_out_w <= {8'b0, read_buffer[15:8]};
                             stream_out_w_valid <= 1;
                         end
-                        nibble_counter <= 2;
-                    end
-                    2: begin
-                        if (dir) begin
-                            stream_out_e <= {12'b0, read_buffer[11:8]};
-                            stream_out_e_valid <= 1;
-                        end else begin
-                            stream_out_w <= {12'b0, read_buffer[11:8]};
-                            stream_out_w_valid <= 1;
-                        end
-                        nibble_counter <= 3;
-                    end
-                    3: begin
-                        if (dir) begin
-                            stream_out_e <= {12'b0, read_buffer[15:12]};
-                            stream_out_e_valid <= 1;
-                        end else begin
-                            stream_out_w <= {12'b0, read_buffer[15:12]};
-                            stream_out_w_valid <= 1;
-                        end
-                        nibble_counter <= 0;
+                        byte_counter <= 0;
                         addr <= addr + 1;
                         if (len > 0) begin
                             len <= len - 1;
@@ -223,26 +186,59 @@ module mem_tile #(
                             state <= STATE_IDLE;
                         end
                     end
-                endcase
-            end
-            STATE_WRITE_16: begin
-                if (stream_in_valid) begin
-                    if (len > 0) begin
-                        addr <= addr + 1;
-                        len <= len - 1;
-                    end else begin
-                        state <= STATE_IDLE;
-                    end
                 end
-            end
-            STATE_WRITE_8: begin
-                if (stream_in_valid) begin
-                    if (byte_counter == 0) begin
-                        write_buffer[7:0] <= stream_in[7:0];
-                        byte_counter <= 1;
-                    end else begin
-                        write_buffer[15:8] <= stream_in[7:0];
-                        byte_counter <= 0;
+                STATE_READ_4: begin
+                    case (nibble_counter)
+                        0: begin
+                            if (dir) begin
+                                stream_out_e <= {12'b0, read_buffer[3:0]};
+                                stream_out_e_valid <= 1;
+                            end else begin
+                                stream_out_w <= {12'b0, read_buffer[3:0]};
+                                stream_out_w_valid <= 1;
+                            end
+                            nibble_counter <= 1;
+                        end
+                        1: begin
+                            if (dir) begin
+                                stream_out_e <= {12'b0, read_buffer[7:4]};
+                                stream_out_e_valid <= 1;
+                            end else begin
+                                stream_out_w <= {12'b0, read_buffer[7:4]};
+                                stream_out_w_valid <= 1;
+                            end
+                            nibble_counter <= 2;
+                        end
+                        2: begin
+                            if (dir) begin
+                                stream_out_e <= {12'b0, read_buffer[11:8]};
+                                stream_out_e_valid <= 1;
+                            end else begin
+                                stream_out_w <= {12'b0, read_buffer[11:8]};
+                                stream_out_w_valid <= 1;
+                            end
+                            nibble_counter <= 3;
+                        end
+                        3: begin
+                            if (dir) begin
+                                stream_out_e <= {12'b0, read_buffer[15:12]};
+                                stream_out_e_valid <= 1;
+                            end else begin
+                                stream_out_w <= {12'b0, read_buffer[15:12]};
+                                stream_out_w_valid <= 1;
+                            end
+                            nibble_counter <= 0;
+                            addr <= addr + 1;
+                            if (len > 0) begin
+                                len <= len - 1;
+                            end else begin
+                                state <= STATE_IDLE;
+                            end
+                        end
+                    endcase
+                end
+                STATE_WRITE_16: begin
+                    if (stream_in_valid) begin
                         if (len > 0) begin
                             addr <= addr + 1;
                             len <= len - 1;
@@ -251,18 +247,36 @@ module mem_tile #(
                         end
                     end
                 end
-            end
-            default: state <= STATE_IDLE;
-        endcase
+                STATE_WRITE_8: begin
+                    if (stream_in_valid) begin
+                        if (byte_counter == 0) begin
+                            write_buffer[7:0] <= stream_in[7:0];
+                            byte_counter <= 1;
+                        end else begin
+                            write_buffer[15:8] <= stream_in[7:0];
+                            byte_counter <= 0;
+                            if (len > 0) begin
+                                addr <= addr + 1;
+                                len <= len - 1;
+                            end else begin
+                                state <= STATE_IDLE;
+                            end
+                        end
+                    end
+                end
+                default: state <= STATE_IDLE;
+            endcase
+        end
     end
 endmodule
 
 module mem_slice #(
     parameter NUM_TILES  = 8,   // 16*8=128
     parameter DATA_WIDTH = 128,
-    parameter INS_WIDTH  = 16,
+    parameter INS_WIDTH  = 16
 ) (
     input wire clk,
+    input wire rst,
     input [DATA_WIDTH-1:0] stream_in_w,
     input [NUM_TILES-1:0] stream_in_w_valid,
     output [DATA_WIDTH-1:0] stream_out_w,
@@ -274,12 +288,10 @@ module mem_slice #(
     input [INS_WIDTH-1:0] ins_in_w,
     input [INS_WIDTH-1:0] ins_in_e,
     input ins_in_valid_w,
-    input ins_in_valid_e,
+    input ins_in_valid_e
 );
-
     wire [INS_WIDTH-1:0] ins_inter_w[0:NUM_TILES-1];
     wire ins_valid_inter_w[0:NUM_TILES-1];
-
     wire [INS_WIDTH-1:0] ins_inter_e[0:NUM_TILES-1];
     wire ins_valid_inter_e[0:NUM_TILES-1];
 
@@ -290,6 +302,7 @@ module mem_slice #(
                 .TILE_NO(i)
             ) tile (
                 .clk(clk),
+                .rst(rst),
                 .stream_in_w(stream_in_w[i*16+:16]),
                 .stream_in_w_valid(stream_in_w_valid[i]),
                 .stream_out_w(stream_out_w[i*16+:16]),
@@ -305,21 +318,21 @@ module mem_slice #(
             );
         end
     endgenerate
-
 endmodule
 
 module mem_id #(
     parameter ID_NO  = 3,
     parameter INS_WIDTH = 64,
-    parameter SLICE_INS_WIDTH = 16,
+    parameter SLICE_INS_WIDTH = 16
 )(
     input wire clk,
+    input wire rst,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
     output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
-    output wire slice_ins_out_valid,
+    output wire slice_ins_out_valid
 );
 
     initial begin
@@ -329,8 +342,11 @@ module mem_id #(
     assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
     assign slice_ins_out = ins_in[31:16];
 
-    always @(posedge clk) begin
-        if (slice_ins_out_valid) begin
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            ins_out <= 0;
+            ins_out_valid <= 0;
+        end else if (slice_ins_out_valid) begin
             ins_out <= 0;
             ins_out_valid <= 0;
         end else begin
@@ -350,6 +366,7 @@ module sw_tile #(
     parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
+    input wire rst,
     input [LANE_WIDTH-1:0] stream_in,
     input stream_in_valid,
     output reg [LANE_WIDTH-1:0] stream_out,
@@ -367,68 +384,70 @@ module sw_tile #(
     output reg [SLICE_INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid
 );
-
     reg [7:0] out_state;
     reg [7:0] in_state;
-
-    initial begin
-        out_state = 0;
-        in_state = 0;
-        ins_out_valid = 0;
-        stream_out_valid = 0;
-        io_up_out_valid = 0;
-        io_down_out_valid = 0;
-    end
 
     wire [7:0] ins_tile_no = ins_in[7:0];
     wire [7:0] ins_op = ins_in[15:8];
 
-    always @(posedge clk) begin
-        io_up_out_valid <= io_up_in_valid;
-        io_up_out <= io_up_in;
-        io_down_out_valid <= io_down_in_valid;
-        io_down_out <= io_down_in;
-        if (out_state==8'hff  && in_state==8'hff) begin
-            stream_out_valid <= stream_in_valid;
-            stream_out <= stream_in;
-        end else begin
-            if (out_state!=0) begin
-                if (out_state[6]) begin
-                    io_up_out_valid[out_state[2:0]] <= stream_in_valid;
-                    io_up_out[out_state[2:0]*16+:16] <= stream_in;
-                end else begin
-                    io_down_out_valid[out_state[2:0]] <= stream_in_valid;
-                    io_down_out[out_state[2:0]*16+:16] <= stream_in;
-                end
-            end
-            if (in_state!=0) begin
-                if (in_state[6]) begin
-                    stream_out_valid <= io_up_in_valid[in_state[2:0]];
-                    stream_out <= io_up_in[in_state[2:0]*16+:16];
-                end else begin
-                    stream_out_valid <= io_down_in_valid[in_state[2:0]];
-                    stream_out <= io_down_in[in_state[2:0]*16+:16];
-                end
-            end
-        end
-        if (ins_in_valid && ins_tile_no == TILE_NO) begin
-            if (ins_op==8'hff) begin
-                out_state <= 8'hff;
-                in_state <= 8'hff;
-            end else begin
-                if (ins_op[7])
-                    out_state <= ins_op[6:0];
-                else
-                    in_state <= ins_op[6:0];
-            end
-            ins_out <= 0;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            out_state <= 0;
+            in_state <= 0;
             ins_out_valid <= 0;
+            stream_out_valid <= 0;
+            io_up_out_valid <= 0;
+            io_down_out_valid <= 0;
+            stream_out <= 0;
+            io_up_out <= 0;
+            io_down_out <= 0;
+            ins_out <= 0;
         end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
+            io_up_out_valid <= io_up_in_valid;
+            io_up_out <= io_up_in;
+            io_down_out_valid <= io_down_in_valid;
+            io_down_out <= io_down_in;
+            if (out_state==8'hff  && in_state==8'hff) begin
+                stream_out_valid <= stream_in_valid;
+                stream_out <= stream_in;
+            end else begin
+                if (out_state!=0) begin
+                    if (out_state[6]) begin
+                        io_up_out_valid[out_state[2:0]] <= stream_in_valid;
+                        io_up_out[out_state[2:0]*16+:16] <= stream_in;
+                    end else begin
+                        io_down_out_valid[out_state[2:0]] <= stream_in_valid;
+                        io_down_out[out_state[2:0]*16+:16] <= stream_in;
+                    end
+                end
+                if (in_state!=0) begin
+                    if (in_state[6]) begin
+                        stream_out_valid <= io_up_in_valid[in_state[2:0]];
+                        stream_out <= io_up_in[in_state[2:0]*16+:16];
+                    end else begin
+                        stream_out_valid <= io_down_in_valid[in_state[2:0]];
+                        stream_out <= io_down_in[in_state[2:0]*16+:16];
+                    end
+                end
+            end
+            if (ins_in_valid && ins_tile_no == TILE_NO) begin
+                if (ins_op==8'hff) begin
+                    out_state <= 8'hff;
+                    in_state <= 8'hff;
+                end else begin
+                    if (ins_op[7])
+                        out_state <= ins_op[6:0];
+                    else
+                        in_state <= ins_op[6:0];
+                end
+                ins_out <= 0;
+                ins_out_valid <= 0;
+            end else begin
+                ins_out <= ins_in;
+                ins_out_valid <= ins_in_valid;
+            end
         end
     end
-
 endmodule
 
 module sw_slice #(
@@ -439,6 +458,7 @@ module sw_slice #(
     parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
+    input wire rst,
     input [DATA_WIDTH-1:0] stream_in,
     input [NUM_TILES-1:0] stream_in_valid,
     output [DATA_WIDTH-1:0] stream_out,
@@ -450,7 +470,6 @@ module sw_slice #(
     input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid
 );
-
     wire [SLICE_INS_WIDTH-1:0] ins_inter[NUM_TILES-1:0];
     wire ins_valid_inter[NUM_TILES-1:0];
     wire [IO_WIDTH-1:0] io_up_inter[NUM_TILES-1:0];
@@ -465,6 +484,7 @@ module sw_slice #(
                 .TILE_NO(i)
             ) tile (
                 .clk(clk),
+                .rst(rst),
                 .stream_in(stream_in[i*LANE_WIDTH+:LANE_WIDTH]),
                 .stream_in_valid(stream_in_valid[i]),
                 .stream_out(stream_out[i*LANE_WIDTH+:LANE_WIDTH]),
@@ -484,15 +504,15 @@ module sw_slice #(
             );
         end
     endgenerate
-
 endmodule
 
 module sw_id #(
     parameter ID_NO  = 2,
     parameter INS_WIDTH = 64,
-    parameter SLICE_INS_WIDTH = 16,
+    parameter SLICE_INS_WIDTH = 16
 ) (
     input wire clk,
+    input wire rst,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
@@ -500,16 +520,14 @@ module sw_id #(
     output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
     output wire slice_ins_out_valid
 );
-
-    initial begin
-        ins_out_valid = 0;
-    end
-
     assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
     assign slice_ins_out = ins_in[31:16];
 
-    always @(posedge clk) begin
-        if (slice_ins_out_valid) begin
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            ins_out <= 0;
+            ins_out_valid <= 0;
+        end else if (slice_ins_out_valid) begin
             ins_out <= 0;
             ins_out_valid <= 0;
         end else begin
@@ -517,7 +535,6 @@ module sw_id #(
             ins_out_valid <= ins_in_valid;
         end
     end
-
 endmodule
 
 // dot product compute
@@ -597,15 +614,16 @@ module dot_tile #(
     localparam STATE_LOAD_WEIGHT = 1;
     localparam STATE_LOAD_SUM = 2;
     localparam STATE_MUL = 3;
-
     localparam OP_PASS = 0;
     localparam OP_LOAD_WEIGHT = 1;
     localparam OP_LOAD_SUM = 2;
     localparam OP_MUL = 3;
 
     reg [7:0] weight;
-    wire [15:0] fma_result;
+    reg [15:0] sum;
+    reg [1:0] current_state;
 
+    wire [15:0] fma_result;
     fp4_fma fma (
         .a(weight),
         .b(stream_in_e[3:0]),
@@ -613,83 +631,98 @@ module dot_tile #(
         .result(fma_result)
     );
 
-    always @(posedge clk) begin
-        case (state)
-            STATE_PASS: begin
-                stream_out_w <= stream_in_e;
-                stream_out_w_valid <= stream_in_e_valid;
-                stream_out_e <= stream_in_w;
-                stream_out_e_valid <= stream_in_w_valid;
-                stream_out_s <= 0;
-                stream_out_s_valid <= 0;
-            end
-            STATE_LOAD_WEIGHT: begin
-                if (stream_in_e_valid) begin
-                    weight <= stream_in_e[7:0];
-                    state <= STATE_PASS;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            weight <= 0;
+            sum <= 0;
+            current_state <= STATE_PASS;
+            ins_out <= 0;
+            ins_out_valid <= 0;
+            stream_out_w <= 0;
+            stream_out_w_valid <= 0;
+            stream_out_e <= 0;
+            stream_out_e_valid <= 0;
+            stream_out_s <= 0;
+            stream_out_s_valid <= 0;
+        end else begin
+            case (current_state)
+                STATE_PASS: begin
+                    stream_out_w <= stream_in_e;
+                    stream_out_w_valid <= stream_in_e_valid;
+                    stream_out_e <= stream_in_w;
+                    stream_out_e_valid <= stream_in_w_valid;
+                    stream_out_s <= 0;
+                    stream_out_s_valid <= 0;
                 end
-                stream_out_w <= 0;
-                stream_out_w_valid <= 0;
-                stream_out_e <= stream_in_w;
-                stream_out_e_valid <= stream_in_w_valid;
-                stream_out_s <= 0;
-                stream_out_s_valid <= 0;
-            end
-            STATE_LOAD_SUM: begin
-                if (stream_in_e_valid) begin
-                    sum <= stream_in_e;
-                    state <= STATE_PASS;
-                end
-                stream_out_w <= 0;
-                stream_out_w_valid <= 0;
-                stream_out_e <= stream_in_w;
-                stream_out_e_valid <= stream_in_w_valid;
-                stream_out_s <= 0;
-                stream_out_s_valid <= 0;
-            end
-            STATE_MUL: begin
-                stream_out_e <= stream_in_e;
-                stream_out_e_valid <= stream_in_e_valid;
-                stream_out_s <= 0;
-                stream_out_s_valid <= 1;
-                if (IS_LAST_SUM) begin
+                STATE_LOAD_WEIGHT: begin
                     if (stream_in_e_valid) begin
-                        stream_out_e <= fma_result;
-                        stream_out_e_valid <= 1;
+                        weight <= stream_in_e[7:0];
+                        current_state <= STATE_PASS;
                     end
-                end else begin
+                    stream_out_w <= 0;
+                    stream_out_w_valid <= 0;
+                    stream_out_e <= stream_in_w;
+                    stream_out_e_valid <= stream_in_w_valid;
+                    stream_out_s <= 0;
+                    stream_out_s_valid <= 0;
+                end
+                STATE_LOAD_SUM: begin
                     if (stream_in_e_valid) begin
-                        stream_out_s <= fma_result;
-                        stream_out_s_valid <= 1;
+                        sum <= stream_in_e;
+                        current_state <= STATE_PASS;
                     end
+                    stream_out_w <= 0;
+                    stream_out_w_valid <= 0;
+                    stream_out_e <= stream_in_w;
+                    stream_out_e_valid <= stream_in_w_valid;
+                    stream_out_s <= 0;
+                    stream_out_s_valid <= 0;
                 end
-            end
-        endcase
-        if (ins_in_valid && ins_in[7:0]==TILE_NO) begin
-            case (ins_in[15:8])
-                OP_LOAD_WEIGHT: begin
-                    state <= STATE_LOAD_WEIGHT;
-                end
-                OP_MUL: begin
-                    state <= STATE_MUL;
+                STATE_MUL: begin
+                    stream_out_e <= stream_in_e;
+                    stream_out_e_valid <= stream_in_e_valid;
+                    stream_out_s <= 0;
+                    stream_out_s_valid <= 1;
+                    if (IS_LAST_SUM) begin
+                        if (stream_in_e_valid) begin
+                            stream_out_e <= fma_result;
+                            stream_out_e_valid <= 1;
+                        end
+                    end else begin
+                        if (stream_in_e_valid) begin
+                            stream_out_s <= fma_result;
+                            stream_out_s_valid <= 1;
+                        end
+                    end
                 end
             endcase
-            ins_out_valid <= 0;
-        end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
+
+            if (ins_in_valid && ins_in[7:0]==TILE_NO) begin
+                case (ins_in[15:8])
+                    OP_LOAD_WEIGHT: begin
+                        current_state <= STATE_LOAD_WEIGHT;
+                    end
+                    OP_MUL: begin
+                        current_state <= STATE_MUL;
+                    end
+                endcase
+                ins_out_valid <= 0;
+            end else begin
+                ins_out <= ins_in;
+                ins_out_valid <= ins_in_valid;
+            end
         end
     end
-
 endmodule
 
 module dot_slice #(
     parameter DATA_WIDTH = 128, // 16*8
     parameter NUM_TILES = 8,
     parameter SLICE_INS_WIDTH = 16,
-    parameter LAST_TILE_NO = 0,
+    parameter LAST_TILE_NO = 0
 )(
     input clk,
+    input rst,
     input [DATA_WIDTH-1:0] stream_in_w,
     input [NUM_TILES-1:0] stream_in_w_valid,
     output [DATA_WIDTH-1:0] stream_out_e,
@@ -699,9 +732,8 @@ module dot_slice #(
     input [DATA_WIDTH-1:0] stream_in_e,
     input [NUM_TILES-1:0] stream_in_e_valid,
     input [SLICE_INS_WIDTH-1:0] ins_in,
-    input ins_in_valid,
+    input ins_in_valid
 );
-
     wire [SLICE_INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
     wire ins_valid_inter[0:NUM_TILES-1];
 
@@ -713,6 +745,7 @@ module dot_slice #(
                 .IS_LAST_SUM(i==LAST_TILE_NO)
             ) tile (
                 .clk(clk),
+                .rst(rst),
                 .stream_in_w(stream_in_w[i*16+:16]),
                 .stream_in_w_valid(stream_in_w_valid[i]),
                 .stream_out_e(stream_out_e[i*16+:16]),
@@ -728,32 +761,30 @@ module dot_slice #(
             );
         end
     endgenerate
-
 endmodule
 
 module dot_id #(
     parameter ID_NO  = 6,
     parameter INS_WIDTH = 64,
-    parameter SLICE_INS_WIDTH = 16,
+    parameter SLICE_INS_WIDTH = 16
 )(
     input wire clk,
+    input wire rst,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
     output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
-    output wire slice_ins_out_valid,
+    output wire slice_ins_out_valid
 );
-
-    initial begin
-        ins_out_valid = 0;
-    end
-
     assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
     assign slice_ins_out = ins_in[31:16];
 
-    always @(posedge clk) begin
-        if (slice_ins_out_valid) begin
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            ins_out <= 0;
+            ins_out_valid <= 0;
+        end else if (slice_ins_out_valid) begin
             ins_out <= 0;
             ins_out_valid <= 0;
         end else begin
@@ -761,36 +792,32 @@ module dot_id #(
             ins_out_valid <= ins_in_valid;
         end
     end
-
 endmodule
 
-// TODO: check this (synth)
 module dot_block #(
     parameter DATA_WIDTH = 128, // 16*8
     parameter NUM_TILES = 8,
     parameter INS_WIDTH = 64,
     parameter NUM_SLICES = 8,
-    parameter START_ID_NO = 6,
+    parameter START_ID_NO = 6
 )(
     input clk,
+    input rst,
     input [DATA_WIDTH-1:0] stream_in_w,
     input [NUM_TILES-1:0] stream_in_w_valid,
     output [DATA_WIDTH-1:0] stream_out_e,
     output [NUM_TILES-1:0] stream_out_e_valid,
     input [INS_WIDTH-1:0] ins_in,
-    input ins_in_valid,
+    input ins_in_valid
 );
     wire [INS_WIDTH-1:0] ins_inter[0:NUM_SLICES-2];
     wire ins_valid_inter[0:NUM_SLICES-2];
-
     wire [INS_WIDTH-1:0] slice_ins[0:NUM_SLICES-1];
     wire slice_ins_valid[0:NUM_SLICES-1];
-
     wire [DATA_WIDTH-1:0] stream_inter_w[0:NUM_SLICES-1];
     wire [DATA_WIDTH-1:0] stream_inter_e[0:NUM_SLICES-1];
     wire [NUM_TILES-1:0] stream_valid_inter_w[0:NUM_SLICES-1];
     wire [NUM_TILES-1:0] stream_valid_inter_e[0:NUM_SLICES-1];
-
     genvar i;
     generate
         for (i = 0; i < NUM_SLICES; i = i + 1) begin : slices
@@ -798,6 +825,7 @@ module dot_block #(
                 .ID_NO(START_ID_NO+i)
             ) id (
                 .clk(clk),
+                .rst(rst),
                 .ins_in(i==0?ins_in:ins_inter[i-1]),
                 .ins_in_valid(i==0?ins_in_valid:ins_valid_inter[i-1]),
                 .ins_out(ins_inter[i]),
@@ -805,34 +833,34 @@ module dot_block #(
                 .slice_ins_out(slice_ins[i]),
                 .slice_ins_out_valid(slice_ins_valid[i])
             );
-
             dot_slice #(
                 .LAST_TILE_NO(i)
             ) slice (
                 .clk(clk),
+                .rst(rst),
                 .stream_in_w(i==0?stream_in_w:stream_inter_w[i-1]),
                 .stream_in_w_valid(i==0?stream_in_w_valid:stream_valid_inter_w[i-1]),
                 .stream_out_e(i==0?stream_out_e:stream_inter_e[i-1]),
                 .stream_out_e_valid(i==0?stream_out_e_valid:stream_valid_inter_e[i-1]),
                 .stream_out_w(stream_inter_w[i]),
-                .stream_out_w_valid(stream_inter_w_valid[i]),
+                .stream_out_w_valid(stream_valid_inter_w[i]),
                 .stream_in_e(i<=NUM_SLICES-1?stream_inter_e[i]:0),
-                .stream_in_e_valid(i<=NUM_SLICES-1?stream_inter_e_valid[i]:0),
+                .stream_in_e_valid(i<=NUM_SLICES-1?stream_valid_inter_e[i]:0),
                 .ins_in(slice_ins[i]),
-                .ins_in_valid(slice_ins_valid[i]),
+                .ins_in_valid(slice_ins_valid[i])
             );
         end
     endgenerate
-
 endmodule
 
 // pointwise compute
 
 module vec_tile #(
     parameter TILE_NO = 0,
-    parameter SLICE_INS_WIDTH = 16,
+    parameter SLICE_INS_WIDTH = 16
 )(
     input clk,
+    input rst,
     input [15:0] stream_in_w,
     input stream_in_valid_w,
     output reg [15:0] stream_out_e,
@@ -844,110 +872,102 @@ module vec_tile #(
     input [SLICE_INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [SLICE_INS_WIDTH-1:0] ins_out,
-    output reg ins_out_valid,
+    output reg ins_out_valid
 );
-
     localparam STATE_PASS = 0;
     localparam STATE_LOAD = 1;
     localparam STATE_ACTIVE = 2;
-
     localparam OP_PASS = 0;
     localparam OP_LOAD = 1;
     localparam OP_ACTIVE = 2;
-
     reg [1:0] state;
     reg enable_relu;
     reg [3:0] scale_param;
     reg [8:0] add_param;
-
     wire [15:0] relu_out;
     wire [15:0] scaled_out;
     wire [15:0] final_out;
-
     assign relu_out = enable_relu ? (stream_in_e[15] ? 16'd0 : stream_in_e) : stream_in_e;
-
     assign scaled_out = relu_out >> scale_param;
-
     assign final_out = scaled_out + {{7{add_param[8]}}, add_param};
 
-    initial begin
-        state = STATE_PASS;
-        enable_relu = 0;
-        scale_param = 0;
-        add_param = 0;
-        ins_out_valid = 0;
-        stream_out_valid_w = 0;
-        stream_out_valid_e = 0;
-    end
-
-    always @(posedge clk) begin
-        case (state)
-            STATE_PASS: begin
-                stream_out_valid_w <= stream_in_valid_w;
-                stream_out_valid_e <= stream_in_valid_e;
-            end
-            STATE_LOAD: begin
-                if (stream_in_valid_w) begin
-                    enable_relu <= stream_in_w[0];
-                    scale_param <= stream_in_w[7:4];
-                    add_param <= stream_in_w[15:8];
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state <= STATE_PASS;
+            enable_relu <= 0;
+            scale_param <= 0;
+            add_param <= 0;
+            ins_out_valid <= 0;
+            stream_out_valid_w <= 0;
+            stream_out_valid_e <= 0;
+            stream_out_e <= 0;
+            stream_out_w <= 0;
+            ins_out <= 0;
+        end else begin
+            case (state)
+                STATE_PASS: begin
+                    stream_out_valid_w <= stream_in_valid_w;
+                    stream_out_valid_e <= stream_in_valid_e;
+                    stream_out_w <= stream_in_w;
+                    stream_out_e <= stream_in_e;
                 end
-                stream_out_valid_w <= 0;
-                stream_out_valid_e <= stream_in_valid_e;
-            end
-            STATE_ACTIVE: begin
-                if (stream_in_valid_e) begin
-                    stream_out_e <= final_out;
-                    stream_out_valid_e <= 1;
-                end else begin
-                    stream_out_valid_e <= 0;
+                STATE_LOAD: begin
+                    if (stream_in_valid_w) begin
+                        enable_relu <= stream_in_w[0];
+                        scale_param <= stream_in_w[7:4];
+                        add_param <= stream_in_w[15:8];
+                    end
+                    stream_out_valid_w <= 0;
+                    stream_out_valid_e <= stream_in_valid_e;
+                    stream_out_e <= stream_in_e;
                 end
-                stream_out_valid_w <= stream_in_valid_w;
-            end
-        endcase
-        if (ins_in_valid && ins_in[15:8]==TILE_NO) begin
-            case (ins_in[23:16])
-                OP_PASS: begin
-                    state <= STATE_PASS;
-                end
-                OP_LOAD: begin
-                    state <= STATE_LOAD;
-                end
-                OP_ACTIVE: begin
-                    state <= STATE_ACTIVE;
+                STATE_ACTIVE: begin
+                    if (stream_in_valid_e) begin
+                        stream_out_e <= final_out;
+                        stream_out_valid_e <= 1;
+                    end else begin
+                        stream_out_valid_e <= 0;
+                    end
+                    stream_out_valid_w <= stream_in_valid_w;
+                    stream_out_w <= stream_in_w;
                 end
             endcase
-            ins_out_valid <= 0;
-        end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
+            if (ins_in_valid && ins_in[15:8] == TILE_NO) begin
+                case (ins_in[23:16])
+                    OP_PASS: state <= STATE_PASS;
+                    OP_LOAD: state <= STATE_LOAD;
+                    OP_ACTIVE: state <= STATE_ACTIVE;
+                endcase
+                ins_out_valid <= 0;
+            end else begin
+                ins_out <= ins_in;
+                ins_out_valid <= ins_in_valid;
+            end
         end
     end
-
 endmodule
 
 // TODO: check this (synth)
 module vec_slice #(
     parameter DATA_WIDTH = 128, // 16*8
     parameter NUM_TILES = 8,
-    parameter SLICE_INS_WIDTH = 16,
+    parameter SLICE_INS_WIDTH = 16
 )(
     input clk,
+    input rst,
     input [DATA_WIDTH-1:0] stream_in_w,
     input [NUM_TILES-1:0] stream_in_w_valid,
     output [DATA_WIDTH-1:0] stream_out_e,
-    input [NUM_TILES-1:0] stream_out_e_valid,
+    output [NUM_TILES-1:0] stream_out_e_valid,
     input [DATA_WIDTH-1:0] stream_in_e,
     input [NUM_TILES-1:0] stream_in_e_valid,
     output [DATA_WIDTH-1:0] stream_out_w,
-    input [NUM_TILES-1:0] stream_out_w_valid,
+    output [NUM_TILES-1:0] stream_out_w_valid,
     input [SLICE_INS_WIDTH-1:0] ins_in,
-    input ins_in_valid,
+    input ins_in_valid
 );
-
     wire [SLICE_INS_WIDTH-1:0] ins_inter[0:NUM_TILES-1];
     wire ins_valid_inter[0:NUM_TILES-1];
-
     genvar i;
     generate
         for (i = 0; i < NUM_TILES; i = i + 1) begin : tiles
@@ -955,6 +975,7 @@ module vec_slice #(
                 .TILE_NO(i)
             ) tile (
                 .clk(clk),
+                .rst(rst),
                 .stream_in_w(stream_in_w[i*16+:16]),
                 .stream_in_valid_w(stream_in_w_valid[i]),
                 .stream_out_e(stream_out_e[i*16+:16]),
@@ -970,40 +991,40 @@ module vec_slice #(
             );
         end
     endgenerate
-
 endmodule
 
 module vec_id #(
     parameter ID_NO  = 5,
     parameter INS_WIDTH = 32,
-    parameter SLICE_INS_WIDTH = 16,
+    parameter SLICE_INS_WIDTH = 16
 )(
     input wire clk,
+    input wire rst,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
     output wire [SLICE_INS_WIDTH-1:0] slice_ins_out,
-    output wire slice_ins_out_valid
+    output reg slice_ins_out_valid
 );
-
-    initial begin
-        ins_out_valid = 0;
-    end
-
-    assign slice_ins_out_valid = ins_in_valid && ins_in[7:0] == ID_NO;
     assign slice_ins_out = ins_in[31:16];
 
-    always @(posedge clk) begin
-        if (slice_ins_out_valid) begin
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
             ins_out <= 0;
             ins_out_valid <= 0;
+            slice_ins_out_valid <= 0;
         end else begin
-            ins_out <= ins_in;
-            ins_out_valid <= ins_in_valid;
+            slice_ins_out_valid <= ins_in_valid && ins_in[7:0] == ID_NO;
+            if (ins_in_valid && ins_in[7:0] == ID_NO) begin
+                ins_out <= 0;
+                ins_out_valid <= 0;
+            end else begin
+                ins_out <= ins_in;
+                ins_out_valid <= ins_in_valid;
+            end
         end
     end
-
 endmodule
 
 // stream io
@@ -1217,13 +1238,13 @@ module id_fifo #(
     parameter LOG_DEPTH = 7
 )(
     input wire clk,
+    input wire rst,
     input [INS_WIDTH-1:0] ins_in,
     input ins_in_valid,
     output reg [INS_WIDTH-1:0] ins_out,
     output reg ins_out_valid,
     input wire ins_out_ready
 );
-
     reg [INS_WIDTH-1:0] fifo[DEPTH-1:0];
     reg [LOG_DEPTH-1:0] write_ptr;
     reg [LOG_DEPTH-1:0] read_ptr;
@@ -1232,33 +1253,39 @@ module id_fifo #(
     reg [7:0] repeat_count;
     reg [1:0] state;
 
-    initial begin
-        write_ptr = 0;
-        read_ptr = 0;
-        ins_out_valid = 0;
-    end
-
     assign fifo_full  = (write_ptr + 1'b1 == read_ptr);
     assign fifo_empty = (write_ptr == read_ptr);
     assign fifo_length = write_ptr >= read_ptr ? (write_ptr - read_ptr) : (DEPTH + write_ptr - read_ptr);
 
-    always @(posedge clk) begin
-        if (!fifo_full && ins_in_valid) begin
-            fifo[write_ptr] <= ins_in;
-            write_ptr <= write_ptr + 1;
-        end
-        if (ins_out_ready) begin
-            if (!fifo_empty) begin
-                ins_out <= fifo[read_ptr];
-                read_ptr <= read_ptr + 1;
-                ins_out_valid <= 1;
-            end else begin
-                ins_out_valid <= 0;
-                ins_out <= 0;
+    integer i;
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            write_ptr <= 0;
+            read_ptr <= 0;
+            ins_out_valid <= 0;
+            ins_out <= 0;
+            repeat_count <= 0;
+            state <= 0;
+            for (i = 0; i < DEPTH; i = i + 1) begin
+                fifo[i] <= 0;
+            end
+        end else begin
+            if (!fifo_full && ins_in_valid) begin
+                fifo[write_ptr] <= ins_in;
+                write_ptr <= write_ptr + 1;
+            end
+            if (ins_out_ready) begin
+                if (!fifo_empty) begin
+                    ins_out <= fifo[read_ptr];
+                    read_ptr <= read_ptr + 1;
+                    ins_out_valid <= 1;
+                end else begin
+                    ins_out_valid <= 0;
+                    ins_out <= 0;
+                end
             end
         end
     end
-
 endmodule
 
 module dram_io #(
@@ -1330,6 +1357,7 @@ module dram_io #(
 
     id_fifo fifo (
         .clk(clk),
+        .rst(rst),
         .ins_in(fifo_ins_in),
         .ins_in_valid(fifo_ins_in_valid),
         .ins_out(fifo_ins_out),
@@ -1462,7 +1490,7 @@ module nf_tpu #(
     parameter NUM_TILES  = 16
 ) (
     input wire clk,
-    input wire reset,
+    input wire rst,
 
     input wire [IO_WIDTH-1:0] sink_data,
     input wire sink_valid,
@@ -1495,7 +1523,6 @@ module nf_tpu #(
     wire sw_data_out_valid;
     wire [IO_WIDTH-1:0] stream_in;
     wire stream_in_valid;
-    //wire io_out_valid;
     wire [SLICE_INS_WIDTH-1:0] slice_ins[0:7];
     wire slice_ins_valid[0:7];
     wire [IO_WIDTH-1:0] stream_inter_w[0:5];
@@ -1510,6 +1537,7 @@ module nf_tpu #(
         .ID_NO(0)
     ) stream (
         .clk(clk),
+        .rst(rst),
         .rx_data(sink_data),
         .rx_valid(sink_valid),
         .rx_last(sink_last),
@@ -1530,6 +1558,7 @@ module nf_tpu #(
         .ID_NO(1)
     ) dram (
         .clk(clk),
+        .rst(rst),
         .wb_adr_o(dram_addr),
         .wb_dat_o(dram_dat_w),
         .wb_dat_i(dram_dat_r),
@@ -1552,6 +1581,7 @@ module nf_tpu #(
         .ID_NO(2)
     ) sw_id1 (
         .clk(clk),
+        .rst(rst),
         .ins_in(ins_inter[1]),
         .ins_in_valid(ins_valid_inter[1]),
         .ins_out(ins_inter[2]),
@@ -1562,6 +1592,7 @@ module nf_tpu #(
 
     sw_slice sw_slice1 (
         .clk(clk),
+        .rst(rst),
         .stream_in(stream_inter_e[0]),
         .stream_in_valid(stream_valid_inter_e[0]),
         .stream_out(stream_inter_w[0]),
@@ -1578,6 +1609,7 @@ module nf_tpu #(
         .ID_NO(3),
     ) mem_id1 (
         .clk(clk),
+        .rst(rst),
         .ins_in(ins_inter[2]),
         .ins_in_valid(ins_valid_inter[2]),
         .ins_out(ins_inter[3]),
@@ -1590,6 +1622,7 @@ module nf_tpu #(
 
     mem_slice mem_slice1 (
         .clk(clk),
+        .rst(rst),
         .stream_in_w(stream_inter_w[0]),
         .stream_in_w_valid(stream_valid_inter_w[0]),
         .stream_out_e(stream_inter_e[0]),
@@ -1608,6 +1641,7 @@ module nf_tpu #(
         .ID_NO(4),
     ) mem_id2 (
         .clk(clk),
+        .rst(rst),
         .ins_in(ins_inter[3]),
         .ins_in_valid(ins_valid_inter[3]),
         .ins_out(ins_inter[4]),
@@ -1620,6 +1654,7 @@ module nf_tpu #(
 
     mem_slice mem_slice2 (
         .clk(clk),
+        .rst(rst),
         .stream_in_w(stream_inter_w[1]),
         .stream_in_w_valid(stream_valid_inter_w[1]),
         .stream_out_e(stream_inter_e[1]),
@@ -1638,6 +1673,7 @@ module nf_tpu #(
         .ID_NO(5)
     ) vec_id1 (
         .clk(clk),
+        .rst(rst),
         .ins_in(ins_inter[4]),
         .ins_in_valid(ins_valid_inter[4]),
         .ins_out(ins_inter[5]),
@@ -1648,6 +1684,7 @@ module nf_tpu #(
 
     vec_slice vec_slice1 (
         .clk(clk),
+        .rst(rst),
         .stream_in_w(stream_inter_w[2]),
         .stream_in_w_valid(stream_valid_inter_w[2]),
         .stream_out_e(stream_inter_e[2]),
@@ -1664,6 +1701,7 @@ module nf_tpu #(
         .START_ID_NO(6)
     ) dot_block1 (
         .clk(clk),
+        .rst(rst),
         .stream_in_w(stream_inter_w[3]),
         .stream_in_w_valid(stream_valid_inter_w[3]),
         .stream_out_e(stream_inter_e[3]),
