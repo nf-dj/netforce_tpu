@@ -1,4 +1,5 @@
 module led_control(
+    input wire clk,
     output reg led0,
     output reg led1
 );
