@@ -4826,9 +4826,6 @@
   (junction (at 169.926 129.794) (diameter 0) (color 0 0 0 0)
     (uuid 7e329d98-cd05-4f76-80e6-29b4287b4cad)
   )
-  (junction (at 211.836 140.589) (diameter 0) (color 0 0 0 0)
-    (uuid 7f8b957a-fd36-4589-ac28-39094320a402)
-  )
   (junction (at 119.888 120.777) (diameter 0) (color 0 0 0 0)
     (uuid 801f434c-dfef-436d-b470-c197da0f6f95)
   )
@@ -7971,31 +7968,6 @@
       (project "nf_tpu"
         (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0/b780d3b5-6a01-46cb-b503-97403d95c26a"
           (reference "U1") (unit 4)
-        )
-      )
-    )
-  )
-
-  (symbol (lib_id "Connector:TestPoint") (at 211.836 140.589 270) (unit 1)
-    (in_bom yes) (on_board yes) (dnp no) (fields_autoplaced)
-    (uuid 1a5285b2-c78c-4f0e-8651-8c0dff966db8)
-    (property "Reference" "TP13" (at 217.043 139.319 90)
-      (effects (font (size 1.27 1.27)) (justify left))
-    )
-    (property "Value" "TestPoint" (at 217.043 141.859 90)
-      (effects (font (size 1.27 1.27)) (justify left))
-    )
-    (property "Footprint" "TestPoint:TestPoint_Pad_D1.0mm" (at 211.836 145.669 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (property "Datasheet" "~" (at 211.836 145.669 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (pin "1" (uuid 39eaf2d9-82f2-4d7d-993e-59595c65b58f))
-    (instances
-      (project "nf_tpu"
-        (path "/9bed7131-c603-46c6-ae3c-0e9faa418ea0/b780d3b5-6a01-46cb-b503-97403d95c26a"
-          (reference "TP13") (unit 1)
         )
       )
     )
